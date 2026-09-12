@@ -67,6 +67,7 @@ Stated up front, because a confident wrong answer is worse than a gap:
 
 ## Documentation
 
+- [CHANGELOG.md](CHANGELOG.md) — what exists, what was found, and what was withdrawn
 - [PROVENANCE.md](PROVENANCE.md) — the per-component source record and the review rule
 - [papers/README.md](papers/README.md) — the five primary sources, and why the PDFs are not committed
 - [CONTRIBUTING.md](CONTRIBUTING.md) — read before writing any code, the rule is unusual
