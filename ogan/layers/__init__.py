@@ -6,12 +6,16 @@ from ogan.layers.equalized import (
     leaky_relu,
 )
 from ogan.layers.modulated import ModulatedConv2d
+from ogan.layers.resample import BINOMIAL_2, downsample2d, upsample2d
 
 __all__ = [
     "ACTIVATION_GAIN",
+    "BINOMIAL_2",
     "LRELU_SLOPE",
     "EqualizedConv2d",
     "EqualizedLinear",
     "ModulatedConv2d",
+    "downsample2d",
     "leaky_relu",
+    "upsample2d",
 ]
