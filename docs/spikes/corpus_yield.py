@@ -128,3 +128,74 @@ def scan_metadata(paths, min_dim=MIN_IMAGE_DIM):
         print(f"  {path}: {total} rows, {large} at least {min_dim}px", flush=True)
 
     return total, large, by_source
+
+
+USER_AGENT = "OpenGFPGAN-corpus-gate/0.0 (+https://github.com/r3tecnologianet/OpenGFPGAN)"
+
+
+def download(url, timeout=60):
+    """Fetch one image. Returns bytes, or None if it could not be fetched."""
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read()
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+
+
+def detect_faces(data, width, height):
+    """Face boxes in pixels, via the macOS Vision framework.
+
+    Vision returns normalised coordinates, which are meaningless across images of
+    different sizes. They are converted here, once, so no later stage has to
+    remember to do it.
+
+    The detector never enters the model: it selects images and contributes no
+    gradient and no weight. See PROVENANCE.md.
+    """
+    import Vision
+
+    handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(data, None)
+    request = Vision.VNDetectFaceRectanglesRequest.alloc().init()
+    handler.performRequests_error_([request], None)
+
+    faces = []
+    for observation in request.results() or []:
+        box = observation.boundingBox()
+        faces.append({
+            "w": round(box.size.width * width),
+            "h": round(box.size.height * height),
+        })
+    return faces
+
+
+def sample_and_detect(rows, out_path, seed):
+    """Stage 2: download the sample and record what the detector found.
+
+    `rows` is a list of dicts with id, url, width, height, source. Writes one
+    JSONL line per image, including failures — a download that did not happen is
+    data, and dropping it would quietly shrink the denominator.
+    """
+    import json
+
+    with open(out_path, "w") as out:
+        for index, row in enumerate(rows, start=1):
+            data = download(row["url"])
+            record = {
+                "id": row["id"],
+                "source": row["source"],
+                "width": row["width"],
+                "height": row["height"],
+                "downloaded": data is not None,
+                "faces": detect_faces(data, row["width"], row["height"]) if data else [],
+            }
+            out.write(json.dumps(record) + "\n")
+            out.flush()
+
+            if index % 100 == 0:
+                print(f"  {index}/{len(rows)}", flush=True)
+
+    print(f"wrote {out_path}  seed={seed}", flush=True)
