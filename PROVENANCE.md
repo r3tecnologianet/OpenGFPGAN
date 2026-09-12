@@ -79,6 +79,7 @@ That substitution is the failure mode this file exists to prevent.
 | Path length weight | `γ_pl = ln2 / (r²(ln r − ln 2))` | paper | P1 Eq. 5 |
 | Path length and style mixing | computed as an average over all individual synthesis layers | paper | P1 App. B |
 | R1 weight | γ = 10 for all runs except config E of Table 1 and LSUN C HURCH / H ORSE, where γ = 100. **At 1024², FFHQ.** | paper | P1 App. B, *Dataset-specific tuning* |
+| Lazy regularization intervals and compensation | see the App. B rows above; `lazy_adam_hyperparameters` implements them | paper | P1 App. B |
 | Cost of the fused CUDA kernels | ~30% training time, ~20% memory footprint, config E at 1024² | paper | P1 App. B, *Performance optimizations* |
 
 That last row is the budget for this project's central bet. The authors measured
@@ -234,6 +235,8 @@ the value recorded with the measurement that produced it:
 | Demodulation `ε` = 1e-8 | P1 Eq. 3 calls it "a small constant to avoid numerical issues" and gives no value. 1e-8 matches the magnitude the same authors use for pixel normalisation (P3 §4.2) and for Adam (P1 App. B) |
 | Number of style inputs | P2 counts "18 layers — two for each resolution" for a 1024² StyleGAN, where tRGB was a single unmodulated output layer. StyleGAN2 modulates a tRGB at every resolution, so the count does not carry over and P1 does not restate it. Ours: every style input takes its own entry in `w` — 23 at 512² — which is auditable at the cost of a wider `w` than an implementation that shares entries between a block's tRGB and its successor |
 | Mapping-network learning-rate mechanism | P1 App. B states the effect — "100× lower learning rate" — and not how it is produced. Ours: store the parameter `1/lr_multiplier` larger and fold the multiplier into the runtime scale, leaving the effective weight unchanged at initialisation. Measured against the effect rather than the construction |
+| The logistic loss formulas | P1 App. B names "non-saturating logistic loss [16] with R1 regularization [30]" and writes neither; nor does P2. Derived from the names plus a logit-valued discriminator: `softplus(-s_real) + softplus(s_fake)` and `softplus(-s_fake)`. The papers' own citations are Goodfellow et al. 2014 and Mescheder et al. 2018, neither read |
+| Path length: averaging over synthesis layers | App. B says "an average of all individual layers", which reads either as the mean of the per-layer lengths or as the length implied by their mean square. The second is taken, keeping the quantity a length in the sense of Eq. 4. The readings coincide when layers carry comparable gradient and differ by Jensen otherwise |
 | Reduced precision format: **bfloat16** | measured — `docs/spikes/2026-09-12-device-viability.md` §3. float16 gave non-finite gradients through the second derivative; bfloat16 did not |
 | Minibatch stddev **group size** | P3 §3 computes the statistic over the whole minibatch and introduces no subgroup. Splitting the batch into groups of 4 is an implementation-only choice |
 | Generator EMA schedule | P3 §A.1 gives a fixed decay of 0.999. Implementations instead use a half-life measured in images, which is a different thing |
