@@ -300,6 +300,14 @@ curl -s "https://huggingface.co/api/datasets/Spawning/PD12M/tree/main/metadata" 
 Record the actual directory name and file count. If the directory is not called
 `metadata`, use what the listing shows in Step 2 — do not keep the placeholder name.
 
+**Observed 2026-09-12:** `metadata/`, 125 shards, `pd12m.000.parquet` through
+`pd12m.124.parquet`. The first 124 hold 100,000 rows each at ~18.9 MB; the last is a
+94-row tail. That totals 12,400,094, which agrees with `DATASET_SIZE`.
+
+`pyarrow.parquet.read_table` has no HTTP backend, and the Hub 302-redirects
+`resolve/main/...` to a signed CDN URL. The code below therefore fetches each shard
+with `urllib` and hands pyarrow a `BytesIO`.
+
 - [ ] **Step 2: Write the metadata stage**
 
 Append to `docs/spikes/corpus_yield.py`, above the CLI (which Task 5 adds):
@@ -308,7 +316,7 @@ Append to `docs/spikes/corpus_yield.py`, above the CLI (which Task 5 adds):
 HF_REPO = "Spawning/PD12M"
 HF_TREE = f"https://huggingface.co/api/datasets/{HF_REPO}/tree/main"
 HF_FILE = f"https://huggingface.co/datasets/{HF_REPO}/resolve/main"
-METADATA_DIR = "metadata"  # replace with whatever Task 3 Step 1 actually listed
+METADATA_DIR = "metadata"  # confirmed by the repo listing: 125 files, pd12m.NNN.parquet
 
 
 def metadata_files():
@@ -327,8 +335,15 @@ def scan_metadata(paths, min_dim=MIN_IMAGE_DIM):
     Reads three columns. Parquet prunes the rest on read, so this moves tens of
     megabytes rather than the whole table.
 
+    `pyarrow.parquet.read_table` has no HTTP backend of its own, so each shard is
+    fetched into memory with `urllib` first and handed to pyarrow as a `BytesIO`;
+    `urlopen` already follows the redirect the Hub issues to its CDN.
+
     Returns (total_rows, large_rows, {source: [total, large]}).
     """
+    import io
+    import urllib.request
+
     import pyarrow.parquet as pq
 
     total = 0
@@ -336,14 +351,14 @@ def scan_metadata(paths, min_dim=MIN_IMAGE_DIM):
     by_source = {}
 
     for path in paths:
-        table = pq.read_table(
-            f"{HF_FILE}/{path}", columns=["width", "height", "source"]
-        )
+        with urllib.request.urlopen(f"{HF_FILE}/{path}", timeout=60) as response:
+            data = response.read()
+        table = pq.read_table(io.BytesIO(data), columns=["width", "height", "source"])
         widths = table.column("width").to_pylist()
         heights = table.column("height").to_pylist()
         sources = table.column("source").to_pylist()
 
-        for width, height, source in zip(widths, heights, sources):
+        for width, height, source in zip(widths, heights, sources, strict=True):
             counts = by_source.setdefault(source, [0, 0])
             total += 1
             counts[0] += 1
