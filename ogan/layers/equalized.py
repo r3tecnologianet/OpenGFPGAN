@@ -58,14 +58,25 @@ class EqualizedLinear(nn.Module):
     Weights are stored as `N(0, 1)` and scaled by `1/sqrt(fan_in)` on every
     forward pass, so unit-second-moment input gives unit-second-moment output.
     No activation is applied; pair it with `leaky_relu`.
+
+    `bias_init` defaults to zero (P3 §A.1). The style affine layers are the one
+    documented exception, initialising to one so that styles start at unity
+    before any latent signal (P1 App. B, *Generator redesign*).
     """
 
-    def __init__(self, in_features: int, out_features: int, *, bias: bool = True) -> None:
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        *,
+        bias: bool = True,
+        bias_init: float = 0.0,
+    ) -> None:
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.weight = nn.Parameter(torch.randn(out_features, in_features))
-        self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
+        self.bias = nn.Parameter(torch.full((out_features,), bias_init)) if bias else None
         self.scale = in_features**-0.5
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

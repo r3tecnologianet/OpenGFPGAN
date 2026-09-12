@@ -157,6 +157,17 @@ from the wrong kernel means every resampling constant in the network is wrong.
 We start from `[1, 2, 1]`, cited. Adopting `[1, 3, 3, 1]` later is allowed, as
 category `ours`, and only against a measurement of ours.
 
+### Derived while implementing
+
+Consequences of the paper's own equations, recorded because they are not obvious
+and the code would otherwise look wrong to a later reader.
+
+| Observation | Follows from |
+|---|---|
+| **The equalized scale cancels in a demodulated convolution.** Eq. 3 divides by the norm of the weights Eq. 1 produced, so the expression is homogeneous of degree zero in any constant factor of the weight — `1/sqrt(fan_in)` included. It is load-bearing only in the output layers, where App. B omits demodulation. Pinned by a test, since it is equally inviting to delete as dead weight or to reapply on the assumption that it matters. | P1 Eq. 1, Eq. 3, App. B |
+| **The LeakyReLU gain preserves the second moment, not the standard deviation.** LeakyReLU leaves a positive mean, so unit-normal input gives RMS 1.000 and standard deviation 0.897. The second moment is the quantity that propagates: for a following layer with zero-mean weights, `Var(Σ w·y) = Σ Var(w)·E[y²]`. A validation suite asserting `std ∈ [0.99, 1.01]` after an activation fails against a correct implementation. | P3 §4.1 intent, P3 §A.1 |
+| **A deep stack of these layers drifts, without being biased.** One finite-width random layer's empirical gain deviates by order `1/sqrt(units)`, ≈4% at 512, and the deviations compound multiplicatively — so ten layers land anywhere in roughly [0.8, 1.3]. The testable claim is unbiasedness across seeds, not exactness through a stack. | measurement, `tests/test_equalized.py` |
+
 ### Not sourced yet
 
 P1 reuses components from P2 and P3 by citation without restating their values.
@@ -182,6 +193,7 @@ the value recorded with the measurement that produced it:
 | `γ_R1` at 512² | P1 gives 10 **for 1024²** and says the optimum "vary considerably between datasets and configurations". P4 offers a resolution heuristic; either way this is a sweep, not an inherited constant |
 | Activation clamping under reduced precision | not in P1 |
 | Choice of ε under reduced precision | P1 gives ε = 1e-8 without stating a precision regime |
+| Demodulation `ε` = 1e-8 | P1 Eq. 3 calls it "a small constant to avoid numerical issues" and gives no value. 1e-8 matches the magnitude the same authors use for pixel normalisation (P3 §4.2) and for Adam (P1 App. B) |
 | Reduced precision format: **bfloat16** | measured — `docs/spikes/2026-09-12-device-viability.md` §3. float16 gave non-finite gradients through the second derivative; bfloat16 did not |
 | Minibatch stddev **group size** | P3 §3 computes the statistic over the whole minibatch and introduces no subgroup. Splitting the batch into groups of 4 is an implementation-only choice |
 | Generator EMA schedule | P3 §A.1 gives a fixed decay of 0.999. Implementations instead use a half-life measured in images, which is a different thing |
