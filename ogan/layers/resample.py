@@ -42,6 +42,11 @@ This is not a defect to correct. It is inherent to filtered upsampling, and
 neither constant nor white, so a layer that upsamples lands between the two
 figures. What matters is that anything claiming to preserve second moments must
 say which input it means.
+
+Downsampling attenuates white input harder, and for the same reason: a lowpass
+that discards the top half of the spectrum discards most of white noise's
+energy. Its gain is the L2 norm of the normalised kernel, `sqrt(Σ K²) = 0.375`,
+measured 0.3754. `[1, 3, 3, 1]` gives 0.3125.
 """
 
 import torch

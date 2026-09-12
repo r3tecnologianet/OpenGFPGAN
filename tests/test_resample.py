@@ -134,6 +134,20 @@ def test_upsampling_has_dc_gain_one_and_white_gain_three_quarters():
     assert flat.pow(2).mean().sqrt().item() == pytest.approx(1.0, abs=TOL)
 
 
+def test_downsampling_attenuates_white_input_to_the_kernels_l2_norm():
+    """The mirror of the test above, and the reason a residual block's output is
+    well below one: a lowpass discards most of white noise's energy, and the
+    surviving fraction is the L2 norm of the normalised kernel.
+    """
+    k = torch.tensor(BINOMIAL_2)
+    k = k / k.sum()
+    predicted = torch.outer(k, k).square().sum().sqrt().item()
+    assert predicted == pytest.approx(0.375, abs=1e-6)
+
+    out = downsample2d(torch.randn(8, 16, 64, 64))[..., 1:-1, 1:-1]
+    assert out.pow(2).mean().sqrt().item() == pytest.approx(predicted, abs=0.01)
+
+
 # --- composition ----------------------------------------------------------
 
 
