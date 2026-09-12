@@ -46,6 +46,18 @@ def test_parameter_counts_match_the_paper():
     assert (large / small - 1) * 100 == pytest.approx(21.0, abs=0.5)
 
 
+def test_the_channel_cap_reaches_both_networks():
+    """It was once accepted and silently ignored here, which is the failure a
+    signature-only parameter invites: every other test still passed."""
+    from ogan.synthesis import SynthesisNetwork
+
+    for build in (
+        lambda cap: Discriminator(64, channel_max=cap),
+        lambda cap: SynthesisNetwork(64, channel_max=cap),
+    ):
+        assert count(build(24)) < count(build(512)) / 10
+
+
 def test_capacity_mirrors_the_generator():
     net = Discriminator(64)
     assert net.from_rgb.out_channels == channels_at(64)

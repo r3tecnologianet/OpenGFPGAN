@@ -34,7 +34,7 @@ import torch
 from torch import nn
 
 from ogan.layers import EqualizedConv2d, EqualizedLinear, downsample2d, leaky_relu
-from ogan.synthesis import channels_at
+from ogan.synthesis import CHANNEL_MAX, channels_at
 
 RESIDUAL_SCALE = 2.0**-0.5  # P1 Fig. 7 footnote 3
 STDDEV_EPS = 1e-8
@@ -87,18 +87,23 @@ class DiscriminatorEpilogue(nn.Module):
 class Discriminator(nn.Module):
     """Mirrors the synthesis network's capacity, from `resolution` down to 4x4."""
 
-    def __init__(self, resolution: int = 512, *, large: bool = False) -> None:
+    def __init__(
+        self, resolution: int = 512, *, large: bool = False, channel_max: int = CHANNEL_MAX
+    ) -> None:
         super().__init__()
         if resolution < 4 or resolution & (resolution - 1):
             raise ValueError(f"resolution must be a power of two and at least 4, got {resolution}")
         self.resolution = resolution
 
-        self.from_rgb = EqualizedConv2d(3, channels_at(resolution, large=large), 1)
+        def width(res: int) -> int:
+            return channels_at(res, large=large, channel_max=channel_max)
+
+        self.from_rgb = EqualizedConv2d(3, width(resolution), 1)
         self.blocks = nn.ModuleList(
-            DiscriminatorBlock(channels_at(res, large=large), channels_at(res // 2, large=large))
+            DiscriminatorBlock(width(res), width(res // 2))
             for res in (2**i for i in range(int(math.log2(resolution)), 2, -1))
         )
-        self.epilogue = DiscriminatorEpilogue(channels_at(4, large=large))
+        self.epilogue = DiscriminatorEpilogue(width(4))
 
     def forward(self, image: torch.Tensor) -> torch.Tensor:
         if image.shape[1:] != (3, self.resolution, self.resolution):

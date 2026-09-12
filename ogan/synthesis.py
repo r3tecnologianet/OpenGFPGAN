@@ -38,12 +38,19 @@ CHANNELS = {4: 512, 8: 512, 16: 512, 32: 512, 64: 256, 128: 128, 256: 64, 512: 3
 #: P1 footnote 4: the larger configuration doubles feature maps from 64² up.
 LARGE_FROM_RESOLUTION = 64
 
+#: The table's own ceiling. Both of P1's configurations sit at or below it, so
+#: the default changes nothing; lowering it builds the same architecture with
+#: less capacity, which is what makes a network small enough to test quickly.
+CHANNEL_MAX = 512
 
-def channels_at(resolution: int, *, large: bool = False) -> int:
+
+def channels_at(resolution: int, *, large: bool = False, channel_max: int = CHANNEL_MAX) -> int:
     if resolution not in CHANNELS:
         raise ValueError(f"no channel count for resolution {resolution}")
     count = CHANNELS[resolution]
-    return count * 2 if large and resolution >= LARGE_FROM_RESOLUTION else count
+    if large and resolution >= LARGE_FROM_RESOLUTION:
+        count *= 2
+    return min(count, channel_max)
 
 
 class SynthesisBlock(nn.Module):
@@ -85,7 +92,14 @@ class SynthesisBlock(nn.Module):
 class SynthesisNetwork(nn.Module):
     """Blocks from 4² up to `resolution`, summing RGB contributions as it goes."""
 
-    def __init__(self, resolution: int = 512, w_dim: int = W_DIM, *, large: bool = False) -> None:
+    def __init__(
+        self,
+        resolution: int = 512,
+        w_dim: int = W_DIM,
+        *,
+        large: bool = False,
+        channel_max: int = CHANNEL_MAX,
+    ) -> None:
         super().__init__()
         if resolution < 4 or resolution & (resolution - 1):
             raise ValueError(f"resolution must be a power of two and at least 4, got {resolution}")
@@ -95,7 +109,7 @@ class SynthesisNetwork(nn.Module):
         resolutions = [2**i for i in range(2, int(math.log2(resolution)) + 1)]
         blocks, previous = [], 0
         for res in resolutions:
-            out_channels = channels_at(res, large=large)
+            out_channels = channels_at(res, large=large, channel_max=channel_max)
             blocks.append(SynthesisBlock(previous, out_channels, w_dim, res))
             previous = out_channels
         self.blocks = nn.ModuleList(blocks)
