@@ -14,13 +14,14 @@ import torch
 from ogan.loss import (
     PL_DECAY,
     PL_INTERVAL,
-    R1_GAMMA_FFHQ_1024,
     R1_INTERVAL,
     PathLengthPenalty,
     discriminator_loss,
     generator_loss,
     lazy_adam_hyperparameters,
     path_length_weight,
+    r1_gamma,
+    r1_gamma_sweep,
     r1_penalty,
     saturating_generator_loss,
 )
@@ -107,8 +108,30 @@ def test_r1_scales_linearly_with_gamma():
     assert ten / one == pytest.approx(10.0, rel=1e-5)
 
 
-def test_the_papers_gamma():
-    assert R1_GAMMA_FFHQ_1024 == 10.0
+def test_the_r1_weight_comes_from_the_scaling_law():
+    """P4: `gamma_0 = 0.0002 * pixels / minibatch`."""
+    assert r1_gamma(512, 32) == pytest.approx(1.638, abs=0.001)
+    assert r1_gamma(256, 32) == pytest.approx(0.410, abs=0.001)
+    assert r1_gamma(512, 16) == pytest.approx(2 * r1_gamma(512, 32))
+
+
+def test_the_sweep_brackets_the_first_guess():
+    low, high = r1_gamma_sweep(512, 32)
+    assert (low, high) == pytest.approx((1.638 / 5, 1.638 * 5), abs=0.01)
+
+
+def test_the_two_papers_agree_where_they_overlap():
+    """P4's law returns 6.55 at 1024² with a minibatch of 32; P1 chose 10 for its
+    own dataset at that resolution. Same order, inside P4's recommended bracket —
+    the only independent confirmation either number gets.
+
+    P1's value is not inherited. It was tuned for one dataset, and a
+    hyperparameter fitted to a distribution is fitted to that distribution.
+    """
+    guess = r1_gamma(1024, 32)
+    low, high = r1_gamma_sweep(1024, 32)
+    assert guess == pytest.approx(6.554, abs=0.01)
+    assert low < 10.0 < high
 
 
 # --- path length (P1 Eq. 4, Eq. 5, §3.2) ---------------------------------

@@ -15,7 +15,10 @@ Provenance (see PROVENANCE.md):
   of the target, and the averaging over synthesis layers.
 - P1 App. B, *Lazy regularization*: intervals of 16 and 8, the regularization
   term multiplied by k, and the optimizer compensation.
-- P1 App. B, *Dataset-specific tuning*: gamma = 10 for FFHQ at 1024².
+- P4 appendix gives the R1 weight's scaling law, `gamma_0 = 0.0002 * N/M`, with
+  a recommended sweep over `[gamma_0/5, gamma_0*5]`. P1 states only a value it
+  tuned per dataset, which is not a number this project can inherit: it was
+  fitted to a distribution this project will not train on.
 
 **The logistic losses, derived.** The discriminator emits a logit `s`, so its
 probability is `sigmoid(s)`, and `-log sigmoid(s) = softplus(-s)` while
@@ -36,7 +39,8 @@ import torch.nn.functional as F
 R1_INTERVAL = 16  # P1 App. B: k for the discriminator
 PL_INTERVAL = 8  # P1 App. B: k for the generator
 PL_DECAY = 0.99  # P1 App. B: beta_pl
-R1_GAMMA_FFHQ_1024 = 10.0  # P1 App. B, at 1024^2
+R1_GAMMA_COEFFICIENT = 0.0002  # P4 appendix
+R1_GAMMA_SWEEP = (0.2, 5.0)  # P4 appendix: multiply gamma_0 by these to bracket a sweep
 
 
 def discriminator_loss(real_scores: torch.Tensor, fake_scores: torch.Tensor) -> torch.Tensor:
@@ -61,6 +65,28 @@ def r1_penalty(real_scores: torch.Tensor, real_images: torch.Tensor, gamma: floa
     """
     (gradient,) = torch.autograd.grad(real_scores.sum(), real_images, create_graph=True)
     return 0.5 * gamma * gradient.square().sum(dim=(1, 2, 3)).mean()
+
+
+def r1_gamma(resolution: int, batch_size: int) -> float:
+    """P4's first guess: `0.0002 * pixels / minibatch`.
+
+    A starting point and not a setting. P4 found the optimum "vary wildly, from
+    0.01 to 10" across datasets and recommends sweeping `[gamma_0/5, gamma_0*5]`,
+    so the value this returns is where a sweep begins.
+
+    P1's own choice of 10 is not used here. It was tuned for one dataset at
+    1024², and a hyperparameter fitted to a distribution is fitted to *that*
+    distribution — a different consideration from licensing, and one that
+    outlives it. The two do agree where they overlap: this law returns 6.55 at
+    1024² with a minibatch of 32, against P1's 10.
+    """
+    return R1_GAMMA_COEFFICIENT * resolution * resolution / batch_size
+
+
+def r1_gamma_sweep(resolution: int, batch_size: int) -> tuple[float, float]:
+    """The bracket P4 recommends searching, around `r1_gamma`."""
+    centre = r1_gamma(resolution, batch_size)
+    return (centre * R1_GAMMA_SWEEP[0], centre * R1_GAMMA_SWEEP[1])
 
 
 def path_length_weight(resolution: int) -> float:

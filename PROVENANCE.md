@@ -332,6 +332,31 @@ directions**, so neither "the code does X" nor a second-hand summary is a
 substitute for reading the source. That is the rule this file enforces, and it
 now rests on a measured disagreement rather than on a pattern that did not hold.
 
+## Hyperparameters tuned on a dataset we will not use
+
+A rule that follows from the corpus decision but is not the same rule, and is
+easy to miss because it is not about licensing.
+
+**No FFHQ image enters this project, at any stage.** That is the corpus rule, and
+it is about data and lineage. Citing a number a paper measured is not using the
+dataset it was measured on: reading `γ = 10` touches no image and enters no
+weight.
+
+But a hyperparameter fitted to a distribution is fitted to *that* distribution,
+and this project will train on a different one. So values the papers tuned per
+dataset are not inherited:
+
+| Value | What is used instead |
+|---|---|
+| `γ_R1 = 10` (P1 App. B, FFHQ at 1024²) | P4's law, `0.0002 · N/M`, as the centre of a sweep |
+| Training length (P1 raises it from 12M to 25M images for FFHQ) | to be measured |
+| Mirror augmentation (P2 enables it for FFHQ, disables it for LSUN) | a corpus decision, not an inherited one |
+
+Values that are architectural rather than tuned — the channel table, the
+equalized learning rate, the resampling filter, the lazy intervals, the path
+length weight, which is a closed-form function of resolution — carry over
+untouched. The distinction is whether a number was *derived* or *searched for*.
+
 ## Evaluation metrics
 
 FID loads an ImageNet-trained InceptionV3. It sits outside the gradient path: no
