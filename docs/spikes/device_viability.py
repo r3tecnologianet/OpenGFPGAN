@@ -22,10 +22,18 @@ Jacobian-vector identity). See PROVENANCE.md.
 The network below is a two-layer proxy, not StyleGAN2. Throughput figures are for
 comparing devices with one script, not for predicting training time.
 """
-import os, sys, time, math
-os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "0")   # fail loud, not slow
-import torch
-import torch.nn.functional as F
+
+import math
+import os
+import sys
+import time
+
+# Must be set before torch is imported: an operation missing from the backend
+# should fail loudly rather than fall back to the CPU and merely be slow.
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "0")
+
+import torch  # noqa: E402
+import torch.nn.functional as F  # noqa: E402
 
 DEV = sys.argv[1] if len(sys.argv) > 1 else "mps"
 torch.manual_seed(0)
@@ -35,10 +43,10 @@ def modulated_conv2d(x, weight, styles, demodulate=True, eps=1e-8):
     """P1 Eq. 1 (modulation), Eq. 2-3 (demodulation), App. B (grouped conv)."""
     N, C_in, H, W = x.shape
     C_out, _, kh, kw = weight.shape
-    w = weight.unsqueeze(0) * styles.reshape(N, 1, C_in, 1, 1)            # Eq. 1
-    if demodulate:                                                         # Eq. 2-3
+    w = weight.unsqueeze(0) * styles.reshape(N, 1, C_in, 1, 1)  # Eq. 1
+    if demodulate:  # Eq. 2-3
         w = w * w.pow(2).sum(dim=[2, 3, 4], keepdim=True).add(eps).rsqrt()
-    x = x.reshape(1, N * C_in, H, W)                                       # App. B
+    x = x.reshape(1, N * C_in, H, W)  # App. B
     w = w.reshape(N * C_out, C_in, kh, kw)
     o = F.conv2d(x, w, padding=kh // 2, groups=N)
     return o.reshape(N, C_out, *o.shape[-2:])
@@ -46,6 +54,7 @@ def modulated_conv2d(x, weight, styles, demodulate=True, eps=1e-8):
 
 class Stack(torch.nn.Module):
     """A representative slice: affine -> modulated conv -> lrelu, twice."""
+
     def __init__(self, ch=128, w_dim=512):
         super().__init__()
         self.a1 = torch.nn.Linear(w_dim, ch)
@@ -79,8 +88,8 @@ def dtype_check(dev, dt):
 def memory_report(dev):
     if dev != "mps":
         return
-    print(f"       torch allocated   : {torch.mps.current_allocated_memory()/2**30:6.2f} GiB")
-    print(f"       recommended max   : {torch.mps.recommended_max_memory()/2**30:6.2f} GiB")
+    print(f"       torch allocated   : {torch.mps.current_allocated_memory() / 2**30:6.2f} GiB")
+    print(f"       recommended max   : {torch.mps.recommended_max_memory() / 2**30:6.2f} GiB")
 
 
 def result(name, ok, detail=""):
@@ -102,8 +111,11 @@ def test_r1(dev):
         return result("R1 double-backward", False, f"{type(e).__name__}: {e}")
     grads = [p.grad for p in net.parameters() if p.grad is not None]
     finite = all(torch.isfinite(t).all().item() for t in grads)
-    return result("R1 double-backward", finite and len(grads) > 0,
-                  f"{len(grads)} param grads, all finite={finite}, r1={r1.item():.4g}")
+    return result(
+        "R1 double-backward",
+        finite and len(grads) > 0,
+        f"{len(grads)} param grads, all finite={finite}, r1={r1.item():.4g}",
+    )
 
 
 # --- 1b. Path-length-shaped: grad wrt w with create_graph, then backward ---
@@ -115,34 +127,47 @@ def test_pl(dev):
         img = net(const, w)
         y = torch.randn_like(img) / math.sqrt(img.shape[-1] * img.shape[-2])
         s = (img * y).sum()
-        gw = torch.autograd.grad(s, w, create_graph=True)[0]     # P1 §3.2 identity
+        gw = torch.autograd.grad(s, w, create_graph=True)[0]  # P1 §3.2 identity
         pl = (gw.norm(dim=1) - 0.0).pow(2).mean()
         pl.backward()
     except Exception as e:
         return result("Path-length double-backward", False, f"{type(e).__name__}: {e}")
     grads = [p.grad for p in net.parameters() if p.grad is not None]
     finite = all(torch.isfinite(t).all().item() for t in grads)
-    return result("Path-length double-backward", finite and len(grads) > 0,
-                  f"{len(grads)} param grads, all finite={finite}, pl={pl.item():.4g}")
+    return result(
+        "Path-length double-backward",
+        finite and len(grads) > 0,
+        f"{len(grads)} param grads, all finite={finite}, pl={pl.item():.4g}",
+    )
 
 
 # --- 2. Throughput on a fixed workload ---
 def sync(dev):
-    if dev == "mps": torch.mps.synchronize()
-    elif dev == "cuda": torch.cuda.synchronize()
+    if dev == "mps":
+        torch.mps.synchronize()
+    elif dev == "cuda":
+        torch.cuda.synchronize()
+
 
 def bench(dev, res, batch, ch=128, iters=8):
     net = Stack(ch=ch).to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=1e-4, betas=(0.0, 0.99))
     x = torch.randn(batch, ch, res, res, device=dev)
     w = torch.randn(batch, 512, device=dev)
-    for _ in range(3):                                   # warmup
-        opt.zero_grad(); net(x, w).square().mean().backward(); opt.step()
-    sync(dev); t0 = time.perf_counter()
+
+    def step():
+        opt.zero_grad()
+        net(x, w).square().mean().backward()
+        opt.step()
+
+    for _ in range(3):  # warmup
+        step()
+    sync(dev)
+    t0 = time.perf_counter()
     for _ in range(iters):
-        opt.zero_grad(); net(x, w).square().mean().backward(); opt.step()
-    sync(dev); dt = time.perf_counter() - t0
-    return batch * iters / dt
+        step()
+    sync(dev)
+    return batch * iters / (time.perf_counter() - t0)
 
 
 # --- 3. Reported memory ceiling probe ---
@@ -156,20 +181,22 @@ def probe_memory(dev, res, ch=128):
             img = net(x, w)
             y = torch.randn_like(img)
             gw = torch.autograd.grad((img * y).sum(), w, create_graph=True)[0]
-            gw.norm(dim=1).pow(2).mean().backward()      # the expensive path
+            gw.norm(dim=1).pow(2).mean().backward()  # the expensive path
             sync(dev)
             ok.append(batch)
             if dev == "mps":
                 peak[0] = max(peak[0], torch.mps.current_allocated_memory() / 2**30)
             del net, x, w, img, gw
-            if dev == "mps": torch.mps.empty_cache()
+            if dev == "mps":
+                torch.mps.empty_cache()
         except RuntimeError as e:
             print(f"       batch {batch:>2} at {res}²: FAILED ({str(e)[:70]})")
             break
     return ok, peak[0]
 
 
-print(f"device={DEV}  torch={torch.__version__}  MPS_FALLBACK={os.environ['PYTORCH_ENABLE_MPS_FALLBACK']}\n")
+fallback = os.environ["PYTORCH_ENABLE_MPS_FALLBACK"]
+print(f"device={DEV}  torch={torch.__version__}  MPS_FALLBACK={fallback}\n")
 
 print("--- 1. Double-backward through a grouped convolution (the gate) ---")
 gate = test_r1(DEV) and test_pl(DEV)
@@ -180,7 +207,7 @@ for res in (256, 512):
     extra = f", peak {peak:.2f} GiB" if peak else ""
     print(f"       {res}²: batches that fit = {fits}{extra}")
 if DEV == "mps":
-    print(f"       recommended max memory = {torch.mps.recommended_max_memory()/2**30:.2f} GiB")
+    print(f"       recommended max memory = {torch.mps.recommended_max_memory() / 2**30:.2f} GiB")
 
 print("\n--- 3. Reduced precision ---")
 for dt in (torch.float16, torch.bfloat16):
