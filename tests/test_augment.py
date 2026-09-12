@@ -187,6 +187,20 @@ def test_it_augments_with_its_own_p():
     assert not torch.equal(control(images), images)
 
 
+def test_the_pipeline_applies_both_implemented_categories():
+    """Blitting permutes pixels and colour maps values, so a pipeline running
+    both changes the sorted pixel values — which blitting alone cannot do."""
+    control = AdaptiveAugment()
+    control.p = 1.0
+    images = torch.rand(8, 3, 8, 8)
+    out = control(images)
+
+    assert not torch.allclose(out, images)
+    assert not torch.allclose(
+        out.flatten(1).sort(dim=1).values, images.flatten(1).sort(dim=1).values
+    )
+
+
 def test_the_controller_round_trips_through_a_checkpoint():
     """`p` is training state: resuming without it restarts the schedule."""
     control = AdaptiveAugment()

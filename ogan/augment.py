@@ -7,7 +7,10 @@ Provenance (see PROVENANCE.md), all of it P4:
   rest of our tests" — on a 2k set "the vast majority of the benefit came from
   pixel blitting and geometric transforms", while filtering, noise and cutout
   "were not particularly useful". Pixel blitting is x-flips, 90° rotations and
-  integer translation.
+  integer translation; the colour transforms live in `ogan.color_augment`.
+  Geometric transforms are **not implemented yet**: P4 executes them through a
+  reflect-pad, Symlet-6 wavelet upsample, inverse-mapped bilinear lookup and
+  downsample, which is a larger piece than the other two categories together.
 - §2: each transformation is applied "with probability p or skipped with
   probability 1 - p", with "the same value of p for all transformations",
   randomised "separately for each augmentation and for each image in a
@@ -29,6 +32,8 @@ safe to apply at high probability. It is differentiable because a gather is.
 """
 
 import torch
+
+from ogan.color_augment import color_transform
 
 ADA_TARGET = 0.6  # P4 §3
 ADA_INTERVAL = 4  # P4 §3: adjust once every four minibatches
@@ -143,7 +148,14 @@ class AdaptiveAugment:
         return self.p
 
     def __call__(self, images: torch.Tensor) -> torch.Tensor:
-        return pixel_blit(images, self.p)
+        """The pipeline, in P4 §2's fixed order.
+
+        Geometric transforms belong between these two and are not implemented
+        yet; when they arrive they go there, not at the end, because the order
+        is part of what was measured.
+        """
+        images = pixel_blit(images, self.p)
+        return color_transform(images, self.p)
 
     def state_dict(self) -> dict:
         return {"p": self.p, "signs": list(self._signs)}
