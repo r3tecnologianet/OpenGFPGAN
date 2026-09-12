@@ -11,12 +11,16 @@ Run `./fetch.sh` to download all five.
 | **P1** | Analyzing and Improving the Image Quality of StyleGAN (StyleGAN2) | [1912.04958](https://arxiv.org/abs/1912.04958) | **read**, recorded in PROVENANCE.md |
 | **P2** | A Style-Based Generator Architecture for GANs (StyleGAN) | [1812.04948](https://arxiv.org/abs/1812.04948) | **read**, recorded in PROVENANCE.md |
 | **P3** | Progressive Growing of GANs (ProGAN) | [1710.10196](https://arxiv.org/abs/1710.10196) | **read**, recorded in PROVENANCE.md |
-| P4 | Training GANs with Limited Data (StyleGAN2-ADA) | [2006.06676](https://arxiv.org/abs/2006.06676) | not read |
+| **P4** | Training GANs with Limited Data (StyleGAN2-ADA) | [2006.06676](https://arxiv.org/abs/2006.06676) | **read**, recorded in PROVENANCE.md |
 | P5 | Towards Real-World Blind Face Restoration with Generative Facial Prior (GFPGAN) | [2101.04061](https://arxiv.org/abs/2101.04061) | not read |
 
-P1 cites P2 and P3 for components it reuses without restating them. Reading all
-three closed every value the generator and discriminator need. P4 remains, for
-adaptive discriminator augmentation, and P5 for the restoration architecture.
+P1, P2, P3 and P4 have been read, and between them they close every value the
+generator, the discriminator, the losses and the augmentation schedule need. P5
+remains, for the restoration architecture, and belongs to a later stage than any
+code written so far.
+
+P4 is worth reading even where nothing here uses augmentation yet: it supplies
+the R1 weight's scaling law, which P1 leaves as a per-dataset tuning problem.
 
 ## Why the PDFs are not committed
 

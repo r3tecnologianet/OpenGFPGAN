@@ -193,6 +193,57 @@ and the code would otherwise look wrong to a later reader.
 | **Path length cannot move a layer's bias or its noise gain.** Both enter the graph only inside LeakyReLU, whose derivative is piecewise constant, so differentiating that derivative with respect to either is zero almost everywhere. Measured exactly 0.0 against 10³ for the affine and convolution weights. An identity, not a wiring fault — and a test asserting only `grad is not None` would pass while verifying nothing, since both still receive a first-order gradient and so are allocated a zero tensor. | P1 §3.2, measured |
 | **A deep stack of these layers drifts, without being biased.** One finite-width random layer's empirical gain deviates by order `1/sqrt(units)`, ≈4% at 512, and the deviations compound multiplicatively — so ten layers land anywhere in roughly [0.8, 1.3]. The testable claim is unbiasedness across seeds, not exactness through a stack. | measurement, `tests/test_equalized.py` |
 
+### From P4 — StyleGAN2-ADA
+
+| Component | Value | Category | Source |
+|---|---|---|---|
+| Overfitting heuristic | `r_t = E[sign(D_train)]` — "the portion of the training set that gets positive discriminator outputs". 0 means no overfitting, 1 complete overfitting | paper | P4 Eq. 1, §3 |
+| Why this heuristic | "far less sensitive to the chosen target value and other hyperparameters than the obvious alternative of looking at `E[D_train]` directly", and needs no validation set | paper | P4 §3 |
+| Averaging window | the mean over **N = 4 consecutive minibatches**, 4 × 64 = 256 images | paper | P4 §3 |
+| Target value | **0.6** | paper | P4 §3 |
+| `p` initialisation | zero | paper | P4 §3 |
+| `p` adjustment cadence | once every four minibatches | paper | P4 §3 |
+| `p` adjustment size | fixed, sized "so that p can rise from 0 to 1 sufficiently quickly, e.g., in 500k images" | paper | P4 §3 |
+| `p` floor | clamped from below to zero after every step | paper | P4 §3 |
+| Full pipeline | 18 transformations in 6 categories: pixel blitting (x-flips, 90° rotations, integer translation), general geometric, colour, image-space filtering, additive noise, cutout | paper | P4 §2 |
+| **Categories actually used** | **pixel blitting, geometric and colour only** — "we choose to use only pixel blitting, geometric, and color transforms for the rest of our tests" | paper | P4 §2 |
+| Augmentations must be differentiable | "we execute augmentations also when training the generator, which requires the augmentations to be differentiable" | paper | P4 §2 |
+| How `p` is applied | each transformation applied with probability `p` or skipped, the same `p` for all, randomised separately per augmentation and per image, in a fixed order | paper | P4 §2 |
+| **R1 weight, first guess** | **`γ₀ = 0.0002 · N/M`**, N the pixel count and M the minibatch size, with "different values in the range `[γ₀/5, γ₀·5]`" recommended | paper | P4 appendix |
+| Generator weight EMA | a **half-life of 20k images** | paper | P4 |
+
+Two rows change earlier entries in this file.
+
+**`γ_R1` is no longer open.** It was recorded as `ours`, on the grounds that P1
+gives 10 for 1024² and says the optimum "vary[s] considerably". P4 gives the
+scaling law: `0.0002 · N/M`. At 512² with a minibatch of 32 that is **1.638**,
+with a recommended sweep over [0.33, 8.2] — so P1's 10, carried to 512² by the
+document this project audited, is six times the paper's own first guess.
+
+The formula cross-checks against P1. At 1024² with a minibatch of 32 it returns
+6.55, and P1 chose 10 for FFHQ at that resolution — the same order, inside the
+recommended range, from two papers that state it in incompatible forms. That is
+the kind of agreement worth noting, since it is the only independent confirmation
+either value gets.
+
+**The generator EMA schedule is no longer `ours` either.** It was recorded as a
+code-only divergence from P3's fixed decay of 0.999. P4 states the half-life form
+directly, so both exist in the papers and the choice between them is a choice
+between two cited configurations rather than between a paper and an
+implementation.
+
+And one row makes a planning decision for us. The design note for this project
+assumed a subset of the augmentations would be implemented first, "expanding only
+if the r_t indicates". P4 reaches the same place by measurement: on a 2k set "the
+vast majority of the benefit came from pixel blitting and geometric transforms.
+Color transforms were modestly beneficial, while image-space filtering, noise, and
+cutout were not particularly useful". The subset is what the authors ship.
+
+There is a condition attached that matters for our corpus. At 140k images "the
+situation was markedly different: all augmentations were harmful". ADA is a
+small-data mechanism, and whether we need it at all depends on what the corpus
+measurement returns.
+
 ### Not sourced yet
 
 P1 reuses components from P2 and P3 by citation without restating their values.
@@ -201,7 +252,12 @@ going to need its own paper:
 
 | Component | Needs |
 |---|---|
-| Everything about adaptive discriminator augmentation | P4 |
+| The restoration architecture | P5 |
+
+P1, P2, P3 and P4 have been read. Every value the generator, the discriminator,
+the losses and the augmentation schedule need is cited above, or marked `derived`
+or `ours` with its reasoning. Only P5 remains, and it belongs to a later stage
+than any code written so far.
 
 **One ambiguity in P2, recorded rather than resolved.** P2's appendix states "We
 do not use batch normalization, spectral normalization, attention mechanisms,
@@ -229,7 +285,6 @@ the value recorded with the measurement that produced it:
 |---|---|
 | Scaling of `y` by `1/sqrt(H·W)` in the path length term | P1 Eq. 4 specifies only that `y` is a random image with normally distributed pixel intensities |
 | Computing path length on a fraction of the minibatch | not in P1; matters because it decides whether the model fits in a small memory budget |
-| `γ_R1` at 512² | P1 gives 10 **for 1024²** and says the optimum "vary considerably between datasets and configurations". P4 offers a resolution heuristic; either way this is a sweep, not an inherited constant |
 | Activation clamping under reduced precision | not in P1 |
 | Choice of ε under reduced precision | P1 gives ε = 1e-8 without stating a precision regime |
 | Demodulation `ε` = 1e-8 | P1 Eq. 3 calls it "a small constant to avoid numerical issues" and gives no value. 1e-8 matches the magnitude the same authors use for pixel normalisation (P3 §4.2) and for Adam (P1 App. B) |
@@ -239,7 +294,6 @@ the value recorded with the measurement that produced it:
 | Path length: averaging over synthesis layers | App. B says "an average of all individual layers", which reads either as the mean of the per-layer lengths or as the length implied by their mean square. The second is taken, keeping the quantity a length in the sense of Eq. 4. The readings coincide when layers carry comparable gradient and differ by Jensen otherwise |
 | Reduced precision format: **bfloat16** | measured — `docs/spikes/2026-09-12-device-viability.md` §3. float16 gave non-finite gradients through the second derivative; bfloat16 did not |
 | Minibatch stddev **group size** | P3 §3 computes the statistic over the whole minibatch and introduces no subgroup. Splitting the batch into groups of 4 is an implementation-only choice |
-| Generator EMA schedule | P3 §A.1 gives a fixed decay of 0.999. Implementations instead use a half-life measured in images, which is a different thing |
 | The `[1, 3, 3, 1]` resampling kernel | third order, and in none of the three papers. P2 specifies `[1, 2, 1]` and P1 inherits it unchanged |
 
 
