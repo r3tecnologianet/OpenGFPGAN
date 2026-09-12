@@ -24,11 +24,15 @@ Provenance (see PROVENANCE.md), all of it P4:
   clamped from below to zero after every step. The target is 0.6.
 
 **Pixel blitting is implemented as a single gather, and that is not an
-optimisation.** All three transforms are permutations of the pixel grid, so
-composing them gives one index map per image and applying it moves every pixel
-exactly once. No interpolation, no resampling, no energy lost at the edges —
-which is what separates this category from the geometric one, and what makes it
-safe to apply at high probability. It is differentiable because a gather is.
+optimisation.** All three transforms land every output pixel exactly on some
+input pixel, so composing them gives one integer index map per image and applying
+it needs no interpolation. That is what separates this category from the
+geometric one, where P4 has to upsample through a wavelet filter to resample
+safely. It is differentiable because a gather is.
+
+Flips and rotations are permutations. **Translation is not**: P4 pads by
+reflection and crops, so a shifted image duplicates some pixels near one edge and
+discards some at the other. Exact, but not measure-preserving.
 """
 
 import torch
@@ -40,47 +44,64 @@ ADA_INTERVAL = 4  # P4 §3: adjust once every four minibatches
 ADA_RAMP_IMAGES = 500_000  # P4 §3: 0 -> 1 in this many images
 
 
+BLIT_TRANSLATE_FRACTION = 0.125  # P4 App. B: t ~ U(-0.125, +0.125)
+
+
+def _reflect(index: torch.Tensor, size: int) -> torch.Tensor:
+    """Fold an out-of-range index back inside, without repeating the edge pixel.
+
+    P4 pads with reflection before applying the transform and crops afterwards,
+    which for an integer translation is the same as reading a reflected index.
+    """
+    period = 2 * (size - 1) if size > 1 else 1
+    folded = index.abs() % period
+    return torch.minimum(folded, period - folded)
+
+
 def _blit_indices(n: int, size: int, p: float, device: torch.device) -> torch.Tensor:
-    """Compose x-flip, 90° rotation and integer translation into one index map.
+    """Compose P4's three blitting transforms into one index map per image.
 
     Returns `[n, size, size]` flat indices into the spatial plane. Each transform
-    is drawn independently per image and taken with probability `p`, per §2.
+    is drawn independently per image and taken with probability `p`, per §2 — and
+    each then draws its own parameter, which is why the effective rate differs
+    per transform: an x-flip taken with `i ~ U{0,1}` mirrors half the time it is
+    taken, and a rotation taken with `i ~ U{0,3}` turns three quarters of the
+    time.
     """
-    rows = torch.arange(size, device=device).reshape(1, size, 1).expand(n, size, size)
-    cols = torch.arange(size, device=device).reshape(1, 1, size).expand(n, size, size)
-    rows, cols = rows.clone(), cols.clone()
+    rows = torch.arange(size, device=device).reshape(1, size, 1).expand(n, size, size).clone()
+    cols = torch.arange(size, device=device).reshape(1, 1, size).expand(n, size, size).clone()
 
     def taken() -> torch.Tensor:
-        return (torch.rand(n, 1, 1, device=device) < p).expand(n, size, size)
+        return torch.rand(n, 1, 1, device=device) < p
 
-    # x-flip
-    rows, cols = rows, torch.where(taken(), size - 1 - cols, cols)
+    # x-flip: i ~ U{0,1}, so mirrored on half the images that take it
+    mirror = taken() & (torch.rand(n, 1, 1, device=device) < 0.5)
+    cols = torch.where(mirror.expand(n, size, size), size - 1 - cols, cols)
 
-    # 90 degree rotations: (r, c) -> (c, size-1-r), applied k times
-    k = torch.where(
-        (torch.rand(n, 1, 1, device=device) < p),
-        torch.randint(1, 4, (n, 1, 1), device=device),
+    # 90 degree rotations: i ~ U{0,3}, which includes no rotation at all
+    turns = torch.where(
+        taken(),
+        torch.randint(0, 4, (n, 1, 1), device=device),
         torch.zeros(n, 1, 1, dtype=torch.long, device=device),
     ).expand(n, size, size)
     for turn in range(1, 4):
-        rotate = k == turn
         turned_rows, turned_cols = rows, cols
         for _ in range(turn):
             turned_rows, turned_cols = turned_cols, size - 1 - turned_rows
-        rows = torch.where(rotate, turned_rows, rows)
-        cols = torch.where(rotate, turned_cols, cols)
+        selected = turns == turn
+        rows = torch.where(selected, turned_rows, rows)
+        cols = torch.where(selected, turned_cols, cols)
 
-    # integer translation, wrapping
-    for axis in (0, 1):
-        shift = torch.where(
-            torch.rand(n, 1, 1, device=device) < p,
-            torch.randint(0, size, (n, 1, 1), device=device),
-            torch.zeros(n, 1, 1, dtype=torch.long, device=device),
-        ).expand(n, size, size)
+    # integer translation: t ~ U(-0.125, +0.125) of the side, rounded, reflected
+    limit = BLIT_TRANSLATE_FRACTION * size
+    for axis in range(2):
+        offset = (torch.rand(n, 1, 1, device=device) * 2.0 - 1.0) * limit
+        shift = torch.where(taken(), offset.round().long(), torch.zeros_like(offset).long())
+        shift = shift.expand(n, size, size)
         if axis == 0:
-            rows = (rows + shift) % size
+            rows = _reflect(rows - shift, size)
         else:
-            cols = (cols + shift) % size
+            cols = _reflect(cols - shift, size)
 
     return rows * size + cols
 
