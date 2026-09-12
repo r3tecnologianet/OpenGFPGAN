@@ -62,6 +62,16 @@ class EqualizedLinear(nn.Module):
     `bias_init` defaults to zero (P3 §A.1). The style affine layers are the one
     documented exception, initialising to one so that styles start at unity
     before any latent signal (P1 App. B, *Generator redesign*).
+
+    `lr_multiplier` scales how fast this layer learns, which P1 App. B needs for
+    the mapping network ("100× lower learning rate"). P1 states the effect and
+    not the mechanism, so the mechanism is **ours**: store the parameter
+    `1/lr_multiplier` larger and fold `lr_multiplier` into the runtime scale, so
+    the effective weight is unchanged at initialisation. Adam's step size does
+    not depend on gradient magnitude, so a step of a given size moves the
+    *stored* parameter equally either way and the *effective* weight by
+    `lr_multiplier` times as much. `tests/test_mapping.py` measures that ratio
+    rather than trusting the construction.
     """
 
     def __init__(
@@ -71,21 +81,27 @@ class EqualizedLinear(nn.Module):
         *,
         bias: bool = True,
         bias_init: float = 0.0,
+        lr_multiplier: float = 1.0,
     ) -> None:
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = nn.Parameter(torch.randn(out_features, in_features))
-        self.bias = nn.Parameter(torch.full((out_features,), bias_init)) if bias else None
-        self.scale = in_features**-0.5
+        self.lr_multiplier = lr_multiplier
+        self.weight = nn.Parameter(torch.randn(out_features, in_features) / lr_multiplier)
+        self.bias = (
+            nn.Parameter(torch.full((out_features,), bias_init / lr_multiplier)) if bias else None
+        )
+        self.scale = lr_multiplier * in_features**-0.5
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.linear(x, self.weight * self.scale, self.bias)
+        bias = None if self.bias is None else self.bias * self.lr_multiplier
+        return F.linear(x, self.weight * self.scale, bias)
 
     def extra_repr(self) -> str:
         return (
             f"{self.in_features} -> {self.out_features}, "
-            f"bias={self.bias is not None}, scale={self.scale:.6g}"
+            f"bias={self.bias is not None}, scale={self.scale:.6g}, "
+            f"lr_multiplier={self.lr_multiplier:g}"
         )
 
 

@@ -167,6 +167,7 @@ and the code would otherwise look wrong to a later reader.
 | **The equalized scale cancels in a demodulated convolution.** Eq. 3 divides by the norm of the weights Eq. 1 produced, so the expression is homogeneous of degree zero in any constant factor of the weight — `1/sqrt(fan_in)` included. It is load-bearing only in the output layers, where App. B omits demodulation. Pinned by a test, since it is equally inviting to delete as dead weight or to reapply on the assumption that it matters. | P1 Eq. 1, Eq. 3, App. B |
 | **The LeakyReLU gain preserves the second moment, not the standard deviation.** LeakyReLU leaves a positive mean, so unit-normal input gives RMS 1.000 and standard deviation 0.897. The second moment is the quantity that propagates: for a following layer with zero-mean weights, `Var(Σ w·y) = Σ Var(w)·E[y²]`. A validation suite asserting `std ∈ [0.99, 1.01]` after an activation fails against a correct implementation. | P3 §4.1 intent, P3 §A.1 |
 | **`[1, 2, 1]/2` over zero insertion *is* bilinear interpolation, which fixes the normalisation with no freedom left.** Writing the 1D kernel as `[a, b, a]`, outputs on an original position get `b·x` and outputs between two originals get `a·(x_left + x_right)`. Bilinear wants the first to be `x` and the second their mean, forcing `b = 1`, `a = 1/2`. So P2's "2nd order binomial filter" and P2's "bilinear sampling" are the same statement, and each confirms the other. Downsampling normalises to unit DC gain instead: `[1, 2, 1]/4`. `[1, 3, 3, 1]` does not satisfy this. | P2, config B |
+| **Adam's epsilon damps the mapping network past the 100× P1 asks for.** The multiplier scales the stored gradient by 0.01, landing the mapping network's gradients near 1.9e-7 — where Adam's eps of 1e-8 is 5.4% of the denominator rather than a rounding term. Measured effective-weight ratio: 0.0089 at eps 1e-8, 0.0100 at eps 1e-12. Both the mechanism and the epsilon are the paper's, so this is faithful rather than wrong, but "the mapping network barely moves" is otherwise a puzzle to be rediscovered mid-run. | P1 App. B, measured |
 | **Filtered upsampling has two gains: 1 for a constant, 0.75 for white noise.** After zero insertion the four output parities see different subsets of the 2D kernel — weights 1, 1/2, 1/2, 1/4 — so their variances average 9/16, and `sqrt(9/16) = 0.75`. Measured 0.7522. So a layer that upsamples cannot hold its input's second moment: demodulation normalises weights against Eq. 2's unit-variance assumption and never inspects the input. Inherent to the operation, not to the kernel — `[1, 3, 3, 1]` gives 0.625 by the same calculation. Any claim about preserving scale has to say which input it means. | P2 config B, derived |
 | **The activation follows both additions.** P1 §2.1 moves bias and noise outside the style block but does not say in prose where the nonlinearity sits relative to them. A bias applied *after* LeakyReLU could only offset the output, never move where the function bends — which is what a bias in a nonlinear network is for. So both additions precede it. Their order relative to *each other* is not a decision at all: addition commutes. | P1 §2.1 |
 | **Path length cannot move a layer's bias or its noise gain.** Both enter the graph only inside LeakyReLU, whose derivative is piecewise constant, so differentiating that derivative with respect to either is zero almost everywhere. Measured exactly 0.0 against 10³ for the affine and convolution weights. An identity, not a wiring fault — and a test asserting only `grad is not None` would pass while verifying nothing, since both still receive a first-order gradient and so are allocated a zero tensor. | P1 §3.2, measured |
@@ -181,6 +182,20 @@ going to need its own paper:
 | Component | Needs |
 |---|---|
 | Everything about adaptive discriminator augmentation | P4 |
+
+**One ambiguity in P2, recorded rather than resolved.** P2's appendix states "We
+do not use batch normalization, spectral normalization, attention mechanisms,
+dropout, or pixelwise feature vector normalization in our networks", in a
+paragraph otherwise about the classifier networks trained for the separability
+metric. Read as a claim about the generator it would contradict Fig. 1, which
+draws a `Normalize` block between the latent and the mapping network.
+
+The reading taken is that these are two different operations: normalising the
+input latent once, which Fig. 1 shows and which P3 §A.1's hypersphere supports,
+versus applying P3 §4.2 after every convolution inside the generator, which is
+what ProGAN did and what AdaIN replaced. Only the first is implemented, and
+nothing normalises inside the synthesis path. If the reading is wrong, the
+consequence is confined to `ogan/mapping.py`.
 
 Every value the generator and discriminator need is now either cited to a paper
 or explicitly marked `derived` or `ours` below. Nothing is waiting on a guess.
@@ -198,6 +213,7 @@ the value recorded with the measurement that produced it:
 | Activation clamping under reduced precision | not in P1 |
 | Choice of ε under reduced precision | P1 gives ε = 1e-8 without stating a precision regime |
 | Demodulation `ε` = 1e-8 | P1 Eq. 3 calls it "a small constant to avoid numerical issues" and gives no value. 1e-8 matches the magnitude the same authors use for pixel normalisation (P3 §4.2) and for Adam (P1 App. B) |
+| Mapping-network learning-rate mechanism | P1 App. B states the effect — "100× lower learning rate" — and not how it is produced. Ours: store the parameter `1/lr_multiplier` larger and fold the multiplier into the runtime scale, leaving the effective weight unchanged at initialisation. Measured against the effect rather than the construction |
 | Reduced precision format: **bfloat16** | measured — `docs/spikes/2026-09-12-device-viability.md` §3. float16 gave non-finite gradients through the second derivative; bfloat16 did not |
 | Minibatch stddev **group size** | P3 §3 computes the statistic over the whole minibatch and introduces no subgroup. Splitting the batch into groups of 4 is an implementation-only choice |
 | Generator EMA schedule | P3 §A.1 gives a fixed decay of 0.999. Implementations instead use a half-life measured in images, which is a different thing |
