@@ -122,17 +122,53 @@ Two consequences worth stating explicitly, because both are easy to get wrong:
   activation is a placement choice; applying it in both places squares the gain
   to ≈1.92 per layer, and training diverges.
 
+### From P2 — StyleGAN
+
+| Component | Value | Category | Source |
+|---|---|---|---|
+| Resampling filter | a separable **2nd order binomial** filter, i.e. `[1, 2, 1]`, lowpass applied **after each upsampling** layer and **before each downsampling** layer | paper | P2, improved baseline (config B) |
+| Style mixing, mechanism | two latents `z1, z2` through the mapping network; `w1` controls styles before a randomly selected crossover point in the synthesis network, `w2` after it | paper | P2 §3.1 |
+| Style mixing, probability | **90%** of training images (config F). Table 2, one latent at test time: 0% → FID 4.42, 50% → 4.41, **90% → 4.40**, 100% → 4.83 | paper | P2 Table 2 |
+| Loss, FFHQ | non-saturating logistic with R1, γ = 10 | paper | P2, config B |
+| Learning rate at 512² and 1024² | 0.002 rather than 0.003, for stability | paper | P2, config B |
+| Mirror augmentation | enabled for CelebA-HQ and FFHQ, disabled for LSUN | paper | P2, config A |
+
+**The papers say `[1, 2, 1]`, and no paper says `[1, 3, 3, 1]`.** This is the
+sharpest paper/code divergence found so far, and it sits in the resampling path,
+which touches every layer of both networks.
+
+P2 states the filter explicitly: a separable 2nd order binomial filter. Second
+order binomial coefficients are `[1, 2, 1]`. P1 App. B then lists "bilinear
+filtering in all up/downsampling layers" among the details it **kept unchanged**
+from StyleGAN — so P1 does not redefine it, it inherits it.
+
+The `[1, 3, 3, 1]` kernel that every implementation uses is third order, and it
+appears in none of P1, P2 or P3. It is implementation-only.
+
+Consequence for the normalization constants, since they follow from the kernel and
+not from taste. For `K = k ⊗ kᵀ` with `k = [1, 2, 1]`, the coefficients sum to
+`(1+2+1)² = 16`, so:
+
+- downsampling: `K_down = K/16`, coefficients summing to 1
+- upsampling with zero insertion: gain `s² = 4`, so `K_up = 4·(K/16) = K/4`
+
+A `[1, 3, 3, 1]` kernel sums to 64 and gives `/64` and `/16` instead. Starting
+from the wrong kernel means every resampling constant in the network is wrong.
+We start from `[1, 2, 1]`, cited. Adopting `[1, 3, 3, 1]` later is allowed, as
+category `ours`, and only against a measurement of ours.
+
 ### Not sourced yet
 
-P1 reuses these from P2 and P3 by citation, without restating the values. P3 has
-now been read and closed three of them. What remains is **open**, and must not be
-filled in from any implementation:
+P1 reuses components from P2 and P3 by citation without restating their values.
+P3 closed three, P2 closed the last two. One area remains, and it was always
+going to need its own paper:
 
 | Component | Needs |
 |---|---|
-| Resampling filter coefficients — P1 says only "bilinear filtering", and P3 uses element replication and average pooling, so neither gives them | P2 |
-| Style mixing regularization — probability | P2 |
 | Everything about adaptive discriminator augmentation | P4 |
+
+Every value the generator and discriminator need is now either cited to a paper
+or explicitly marked `derived` or `ours` below. Nothing is waiting on a guess.
 
 ### Exists only in implementations — category `ours`
 
@@ -148,6 +184,7 @@ the value recorded with the measurement that produced it:
 | Choice of ε under reduced precision | P1 gives ε = 1e-8 without stating a precision regime |
 | Minibatch stddev **group size** | P3 §3 computes the statistic over the whole minibatch and introduces no subgroup. Splitting the batch into groups of 4 is an implementation-only choice |
 | Generator EMA schedule | P3 §A.1 gives a fixed decay of 0.999. Implementations instead use a half-life measured in images, which is a different thing |
+| The `[1, 3, 3, 1]` resampling kernel | third order, and in none of the three papers. P2 specifies `[1, 2, 1]` and P1 inherits it unchanged |
 
 
 ## Known contamination in the design record
@@ -174,6 +211,11 @@ the record is corrected here rather than quietly amended:
   He's constant for LeakyReLU, which the audit disputed in favour of `sqrt(2)`.
   The audit was wrong: these networks are LeakyReLU throughout. What survives is
   the narrower point, that the document applies the gain twice.
+- The audit commended the document's FIR normalization constants, `/64` and
+  `/16`. The arithmetic is right for the kernel it assumes, but the kernel is
+  `[1, 3, 3, 1]`, which no paper states. Commending it was commending a
+  code-sourced value — the failure mode this file exists to catch, committed by
+  the audit itself.
 
 What survives is narrower and more useful: **paper and code disagree in both
 directions**, so neither "the code does X" nor a second-hand summary is a
