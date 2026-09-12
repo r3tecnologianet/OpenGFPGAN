@@ -66,6 +66,8 @@ applied outside its valid range produces a plausible-looking wrong answer.
 import importlib.util
 import pathlib
 
+import pytest
+
 _PATH = pathlib.Path(__file__).resolve().parents[1] / "docs" / "spikes" / "corpus_yield.py"
 _spec = importlib.util.spec_from_file_location("corpus_yield", _PATH)
 corpus_yield = importlib.util.module_from_spec(_spec)
@@ -99,6 +101,12 @@ def test_expected_total_composes_both_stages():
 
 def test_expected_total_is_zero_when_nothing_qualifies():
     assert corpus_yield.expected_total(0.4, [record((10, 10))], 512, 1_000_000) == 0.0
+
+
+def test_an_empty_sample_raises_rather_than_answering_zero():
+    """Zero faces and zero records are different findings. Only one is a measurement."""
+    with pytest.raises(ValueError, match="empty sample"):
+        corpus_yield.expected_total(0.4, [], 512, 1_000_000)
 
 
 def test_the_sample_is_reproducible_from_its_seed():
@@ -176,9 +184,18 @@ def expected_total(p_large, records, threshold, dataset_size=DATASET_SIZE):
     Exact only for `threshold >= MIN_IMAGE_DIM`. Below that, stage 1 has already
     discarded images that could have held a qualifying face, so the result is a
     lower bound. `report` labels those rows.
+
+    `records` must be the successfully downloaded images only, drawn from the
+    `min(width, height) >= MIN_IMAGE_DIM` subset that `p_large` measures. Both
+    preconditions are load-bearing: include failed downloads and the rate is
+    diluted, sample from the whole dataset instead of the subset and `p_large`
+    double-counts. Neither mistake produces an obviously wrong number.
     """
     if not records:
-        return 0.0
+        raise ValueError(
+            "no records: an empty sample cannot distinguish 'PD12M holds no faces' "
+            "from 'stage 2 wrote nothing'. Check the JSONL path and the download count."
+        )
     per_image = faces_at_least(records, threshold) / len(records)
     return p_large * per_image * dataset_size
 
@@ -193,13 +210,13 @@ def sample_ids(ids, count, seed):
 
 Run: `.venv/bin/pytest tests/test_corpus_yield.py -q`
 
-Expected: `6 passed`.
+Expected: `7 passed`.
 
 - [ ] **Step 5: Run the whole suite and the linter**
 
 Run: `.venv/bin/pytest -q && .venv/bin/ruff check .`
 
-Expected: `227 passed`, then `All checks passed!`.
+Expected: `228 passed`, then `All checks passed!`.
 
 - [ ] **Step 6: Commit**
 
@@ -698,7 +715,7 @@ Create `docs/spikes/2026-09-12-corpus-face-yield.md`, following the shape of
 
 Run: `.venv/bin/pytest -q && .venv/bin/ruff check .`
 
-Expected: `227 passed`, then `All checks passed!`
+Expected: `228 passed`, then `All checks passed!`
 
 - [ ] **Step 8: Commit**
 

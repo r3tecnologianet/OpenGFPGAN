@@ -50,9 +50,18 @@ def expected_total(p_large, records, threshold, dataset_size=DATASET_SIZE):
     Exact only for `threshold >= MIN_IMAGE_DIM`. Below that, stage 1 has already
     discarded images that could have held a qualifying face, so the result is a
     lower bound. `report` labels those rows.
+
+    `records` must be the successfully downloaded images only, drawn from the
+    `min(width, height) >= MIN_IMAGE_DIM` subset that `p_large` measures. Both
+    preconditions are load-bearing: include failed downloads and the rate is
+    diluted, sample from the whole dataset instead of the subset and `p_large`
+    double-counts. Neither mistake produces an obviously wrong number.
     """
     if not records:
-        return 0.0
+        raise ValueError(
+            "no records: an empty sample cannot distinguish 'PD12M holds no faces' "
+            "from 'stage 2 wrote nothing'. Check the JSONL path and the download count."
+        )
     per_image = faces_at_least(records, threshold) / len(records)
     return p_large * per_image * dataset_size
 

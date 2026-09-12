@@ -8,6 +8,8 @@ applied outside its valid range produces a plausible-looking wrong answer.
 import importlib.util
 import pathlib
 
+import pytest
+
 _PATH = pathlib.Path(__file__).resolve().parents[1] / "docs" / "spikes" / "corpus_yield.py"
 _spec = importlib.util.spec_from_file_location("corpus_yield", _PATH)
 corpus_yield = importlib.util.module_from_spec(_spec)
@@ -41,6 +43,12 @@ def test_expected_total_composes_both_stages():
 
 def test_expected_total_is_zero_when_nothing_qualifies():
     assert corpus_yield.expected_total(0.4, [record((10, 10))], 512, 1_000_000) == 0.0
+
+
+def test_an_empty_sample_raises_rather_than_answering_zero():
+    """Zero faces and zero records are different findings. Only one is a measurement."""
+    with pytest.raises(ValueError, match="empty sample"):
+        corpus_yield.expected_total(0.4, [], 512, 1_000_000)
 
 
 def test_the_sample_is_reproducible_from_its_seed():
