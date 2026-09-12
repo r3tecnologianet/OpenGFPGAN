@@ -106,3 +106,24 @@ class SynthesisLayer(nn.Module):
 
     def extra_repr(self) -> str:
         return f"upsample={self.upsample}"
+
+
+class ToRGB(nn.Module):
+    """A modulated 1x1 convolution to colour, without demodulation.
+
+    P1 App. B applies "weight modulation and demodulation in all convolution
+    layers, except for the output layers (tRGB)". Omitting demodulation is what
+    lets the magnitude of the RGB signal respond to the style, instead of being
+    renormalised away — and it is the one place the equalized scale still does
+    anything, since demodulation would otherwise cancel it.
+    """
+
+    def __init__(self, in_channels: int, w_dim: int, out_channels: int = 3) -> None:
+        super().__init__()
+        self.affine = EqualizedLinear(w_dim, in_channels, bias_init=1.0)
+        self.conv = ModulatedConv2d(in_channels, out_channels, 1, demodulate=False)
+        self.bias = nn.Parameter(torch.zeros(out_channels))
+
+    def forward(self, x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
+        x = self.conv(x, self.affine(w))
+        return x + self.bias.reshape(1, -1, 1, 1).to(x.dtype)

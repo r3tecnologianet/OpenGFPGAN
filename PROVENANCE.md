@@ -122,6 +122,23 @@ Two consequences worth stating explicitly, because both are easy to get wrong:
   activation is a placement choice; applying it in both places squares the gain
   to ≈1.92 per layer, and training diverges.
 
+### From P3 Table 2 and P1 §4 — capacity and topology
+
+| Component | Value | Category | Source |
+|---|---|---|---|
+| Feature maps per resolution | 512 at 4², 8², 16², 32²; then 256, 128, 64, 32, 16 at 64² through 1024² | paper | P3 Table 2 |
+| The larger configuration | doubles feature maps "in resolutions 64²-1024², while keeping other parts of the networks unchanged" | paper | P1 footnote 4 |
+| Generator size at 1024² | **25M parameters, rising to 30M — up 22%** | paper | P1 footnote 4 |
+| Output skips | the image is formed by "upsampling and summing the contributions of RGB outputs corresponding to different resolutions", with bilinear filtering in all up and downsampling | paper | P1 §4.1, Fig. 7b |
+| Constant input | initialised `N(0, 1)`; bias, noise and normalisation "can also be safely removed without observable drawbacks" | paper | P1 App. B, §2.1 |
+| Residual scaling in D | the junction doubles signal variance, "which we cancel by multiplying with 1/√2" | paper | P1 Fig. 7 footnote 3 |
+
+The parameter count is the most useful row in this file. It is a number the whole
+architecture has to agree on — channel table, two convolutions per block and one
+at 4², a modulated tRGB at every resolution, and whether the mapping network is
+counted. Measured: 24.90M and 30.37M, up 21.97%. The synthesis network alone is
+22.8M, so P1's figure includes the mapping network.
+
 ### From P2 — StyleGAN
 
 | Component | Value | Category | Source |
@@ -213,6 +230,7 @@ the value recorded with the measurement that produced it:
 | Activation clamping under reduced precision | not in P1 |
 | Choice of ε under reduced precision | P1 gives ε = 1e-8 without stating a precision regime |
 | Demodulation `ε` = 1e-8 | P1 Eq. 3 calls it "a small constant to avoid numerical issues" and gives no value. 1e-8 matches the magnitude the same authors use for pixel normalisation (P3 §4.2) and for Adam (P1 App. B) |
+| Number of style inputs | P2 counts "18 layers — two for each resolution" for a 1024² StyleGAN, where tRGB was a single unmodulated output layer. StyleGAN2 modulates a tRGB at every resolution, so the count does not carry over and P1 does not restate it. Ours: every style input takes its own entry in `w` — 23 at 512² — which is auditable at the cost of a wider `w` than an implementation that shares entries between a block's tRGB and its successor |
 | Mapping-network learning-rate mechanism | P1 App. B states the effect — "100× lower learning rate" — and not how it is produced. Ours: store the parameter `1/lr_multiplier` larger and fold the multiplier into the runtime scale, leaving the effective weight unchanged at initialisation. Measured against the effect rather than the construction |
 | Reduced precision format: **bfloat16** | measured — `docs/spikes/2026-09-12-device-viability.md` §3. float16 gave non-finite gradients through the second derivative; bfloat16 did not |
 | Minibatch stddev **group size** | P3 §3 computes the statistic over the whole minibatch and introduces no subgroup. Splitting the batch into groups of 4 is an implementation-only choice |
