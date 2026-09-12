@@ -29,6 +29,19 @@ totals of 4 and 1 respectively.
 
 `[1, 3, 3, 1]`, which every implementation uses, is third order and is not exact
 bilinear. It appears in none of P1, P2 or P3.
+
+**Upsampling has two gains, and only one of them is 1.** The normalisation above
+fixes the *DC* gain: a constant field upsamples to the same constant. White noise
+is a different matter. After zero insertion the four output parities see
+different subsets of the kernel — in 2D, weights 1, 1/2, 1/2 and 1/4 — so their
+variances are 1, 1/2, 1/2 and 1/4 of the input's, averaging 9/16. The white-noise
+gain is therefore `sqrt(9/16) = 0.75`, measured 0.7522.
+
+This is not a defect to correct. It is inherent to filtered upsampling, and
+`[1, 3, 3, 1]` is worse at 0.625 by the same calculation. Real feature maps are
+neither constant nor white, so a layer that upsamples lands between the two
+figures. What matters is that anything claiming to preserve second moments must
+say which input it means.
 """
 
 import torch

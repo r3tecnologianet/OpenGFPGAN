@@ -119,13 +119,40 @@ def test_upsampling_layer_doubles_resolution():
     assert out.shape == (2, 12, 32, 32)
 
 
-def test_layer_output_starts_near_unit_second_moment():
-    """Demodulation holds the convolution at unit scale, the gain restores what
-    the activation removes, and at initialisation noise and bias contribute
-    nothing. So a fresh layer neither amplifies nor attenuates."""
+@pytest.mark.parametrize("res", [8, 16, 32, 64])
+def test_layer_interior_starts_at_unit_second_moment(res):
+    """Measured on the interior, because the border is a separate, known effect.
+
+    Demodulation holds the convolution at unit scale, the gain restores what the
+    activation removes, and at initialisation noise and bias contribute nothing.
+    The full tensor reads low only because the convolution's zero padding gives
+    border pixels fewer terms to sum — 0.917 at 8², 0.988 at 64², purely a
+    function of how much of the tensor is border. Asserting on the full tensor
+    would make this test's tolerance a proxy for its fixture's resolution.
+    """
     layer = SynthesisLayer(32, 32, W_DIM)
-    out = layer(torch.randn(8, 32, 16, 16), torch.randn(8, W_DIM))
-    assert rms(out) == pytest.approx(1.0, abs=0.05)
+    out = layer(torch.randn(8, 32, res, res), torch.randn(8, W_DIM))
+    assert rms(out[..., 1:-1, 1:-1]) == pytest.approx(1.0, abs=0.01)
+    assert rms(out) < rms(out[..., 1:-1, 1:-1])
+
+
+def test_upsampling_attenuates_white_input_to_the_filters_gain():
+    """The invariant above does not survive upsampling, and cannot.
+
+    Demodulation normalises weights against Eq. 2's unit-variance assumption; it
+    never inspects the input, so it cannot undo a scale the upsampling already
+    applied. Filtered upsampling has DC gain 1 and white-noise gain 0.75, so the
+    layer inherits whichever of those its input resembles.
+
+    Only the white case is asserted here. A constant input through a random
+    modulated convolution is a random projection onto 32 output channels, which
+    lands anywhere in 0.79 to 1.14 across seeds — too dispersed to assert on, and
+    dispersed for a reason unrelated to resampling. The DC gain is pinned exactly
+    in `test_resample.py`, where nothing random stands in the way.
+    """
+    layer = SynthesisLayer(32, 32, W_DIM, upsample=True)
+    white = layer(torch.randn(8, 32, 16, 16), torch.randn(8, W_DIM))
+    assert rms(white[..., 2:-2, 2:-2]) == pytest.approx(0.75, abs=0.03)
 
 
 def test_style_affine_starts_at_unity():
@@ -147,19 +174,34 @@ def test_the_constant_input_case_is_not_this_layers_business():
 # --- second derivatives reach every parameter -----------------------------
 
 
-def test_path_length_shaped_double_backward_reaches_all_parameters():
-    layer = SynthesisLayer(16, 16, W_DIM, upsample=True)
-    x = torch.randn(4, 16, 8, 8)
-    latent = torch.randn(4, W_DIM, requires_grad=True)
-
-    image = layer(x, latent, noise=torch.randn(4, 1, 16, 16))
+def _path_length_backward(layer, x, spatial):
+    latent = torch.randn(x.shape[0], W_DIM, requires_grad=True)
+    image = layer(x, latent, noise=torch.randn(x.shape[0], 1, spatial, spatial))
     projection = (image * torch.randn_like(image)).sum()
     grad = torch.autograd.grad(projection, latent, create_graph=True)[0]  # P1 §3.2
     grad.norm(dim=1).sub(1.0).square().mean().backward()
+    return {name: p.grad for name, p in layer.named_parameters()}
 
-    for name, p in layer.named_parameters():
-        assert p.grad is not None, f"{name} received no gradient"
-        assert torch.isfinite(p.grad).all(), f"{name} has non-finite gradient"
+
+def test_path_length_reaches_the_parameters_it_can():
+    """Three of the five, and the other two are structurally out of reach.
+
+    `bias` and `noise.gain` enter the graph only inside LeakyReLU, whose
+    derivative is piecewise constant. Differentiating that derivative with
+    respect to them is zero almost everywhere, so a path length regulariser
+    cannot move either one — not a wiring mistake, an identity. Asserting
+    `grad is not None` would pass on all five and verify nothing, since both do
+    receive a first-order gradient and so are allocated a zero tensor.
+    """
+    layer = SynthesisLayer(16, 16, W_DIM, upsample=True)
+    grads = _path_length_backward(layer, torch.randn(4, 16, 8, 8), 16)
+
+    for name in ("affine.weight", "affine.bias", "conv.weight"):
+        assert torch.isfinite(grads[name]).all(), f"{name} has non-finite gradient"
+        assert grads[name].abs().sum() > 0, f"{name} received no second-order signal"
+
+    for name in ("bias", "noise.gain"):
+        assert grads[name].abs().sum() == 0.0, f"{name} unexpectedly moved"
 
 
 def test_noise_gain_learns_only_once_noise_is_present():

@@ -55,7 +55,9 @@ class NoiseInjection(nn.Module):
         return x + self.gain * noise
 
     def extra_repr(self) -> str:
-        return f"gain={self.gain.item():.6g}"
+        # Never touch tensor data here: a large generator is normally built on
+        # the meta device, and printing it is the first thing anyone does.
+        return "gain=meta" if self.gain.is_meta else f"gain={self.gain.item():.6g}"
 
 
 class SynthesisLayer(nn.Module):
@@ -63,6 +65,15 @@ class SynthesisLayer(nn.Module):
 
     In order: optional filtered upsampling, the affine transform producing the
     style, the modulated convolution, the noise, the bias, the activation.
+
+    **Without upsampling the layer holds its input's second moment; with it, it
+    does not, and cannot.** Demodulation normalises the weights on Eq. 2's
+    assumption of unit-variance input — it does not inspect the input, so it
+    cannot restore a scale the upsampling already changed. Filtered upsampling
+    has DC gain 1 but white-noise gain 0.75 (see `resample`), so a layer fed
+    white noise emerges at 0.75 and one fed a smooth field at 1.0. Real feature
+    maps sit between. The same is true of every implementation of this
+    architecture, more so: `[1, 3, 3, 1]` gives 0.625.
     """
 
     def __init__(
@@ -88,7 +99,10 @@ class SynthesisLayer(nn.Module):
             x = upsample2d(x)
         x = self.conv(x, self.affine(w))
         x = self.noise(x, noise)
-        return leaky_relu(x + self.bias.reshape(1, -1, 1, 1))
+        # Cast rather than let the addition promote: under autocast the bias is
+        # still a float32 parameter, and promoting here would silently return the
+        # whole block in float32. `F.conv2d` gets this handling for free.
+        return leaky_relu(x + self.bias.reshape(1, -1, 1, 1).to(x.dtype))
 
     def extra_repr(self) -> str:
         return f"upsample={self.upsample}"

@@ -116,6 +116,24 @@ def test_downsampling_nulls_single_axis_nyquist_too():
     assert downsample2d(stripes)[..., 1:-1, 1:-1].abs().max().item() == pytest.approx(0.0, abs=TOL)
 
 
+def test_upsampling_has_dc_gain_one_and_white_gain_three_quarters():
+    """Two different gains, and code that claims to preserve scale must say which.
+
+    After zero insertion the four output parities see different subsets of the
+    2D kernel — weights 1, 1/2, 1/2 and 1/4 — so their variances are 1, 1/2, 1/2
+    and 1/4 of the input's, averaging 9/16. Hence sqrt(9/16) = 0.75 for white
+    input, against 1.0 for a constant. [1, 3, 3, 1] gives 0.625 by the same
+    calculation, so this is inherent to filtered upsampling rather than a
+    property of the kernel the papers specify.
+    """
+    interior = slice(2, -2)
+    white = upsample2d(torch.randn(4, 8, 32, 32))[..., interior, interior]
+    assert white.pow(2).mean().sqrt().item() == pytest.approx(0.75, abs=0.02)
+
+    flat = upsample2d(torch.ones(4, 8, 32, 32))[..., interior, interior]
+    assert flat.pow(2).mean().sqrt().item() == pytest.approx(1.0, abs=TOL)
+
+
 # --- composition ----------------------------------------------------------
 
 
