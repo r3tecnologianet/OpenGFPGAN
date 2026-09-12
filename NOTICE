@@ -1,0 +1,19 @@
+OpenGFPGAN
+Copyright 2026 R3 Tecnologia
+
+This product includes software developed at R3 Tecnologia.
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+--------------------------------------------------------------------------------
+Third-party attributions
+--------------------------------------------------------------------------------
+
+No third-party source code is vendored in this repository.
+
+OpenGFPGAN is a clean-room implementation derived exclusively from published
+academic papers. See PROVENANCE.md for the per-component source record and for
+the review discipline that keeps it that way.
+
+Attributions required by the licences of the training corpus, if any, are
+recorded in corpus/ATTRIBUTIONS.md and are generated from corpus/manifest.jsonl.

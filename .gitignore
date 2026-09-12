@@ -1,0 +1,32 @@
+# Datasets and model artifacts — never committed, always reproducible from scripts
+corpus/data/
+corpus/cache/
+checkpoints/
+runs/
+*.pkl
+*.pt
+*.pth
+*.safetensors
+*.mlpackage/
+*.mlmodelc/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Scratch
+scratch/
+tmp/
+
+# Third-party technical notes held locally and deliberately not published:
+# derived from the reference implementations, so they are not clean-room sources.
+# See PROVENANCE.md.
+docs/reference/
