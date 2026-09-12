@@ -7,6 +7,7 @@ from ogan.layers.equalized import (
 )
 from ogan.layers.modulated import ModulatedConv2d
 from ogan.layers.resample import BINOMIAL_2, downsample2d, upsample2d
+from ogan.layers.synthesis import NoiseInjection, SynthesisLayer
 
 __all__ = [
     "ACTIVATION_GAIN",
@@ -15,6 +16,8 @@ __all__ = [
     "EqualizedConv2d",
     "EqualizedLinear",
     "ModulatedConv2d",
+    "NoiseInjection",
+    "SynthesisLayer",
     "downsample2d",
     "leaky_relu",
     "upsample2d",
