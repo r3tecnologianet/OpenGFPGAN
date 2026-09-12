@@ -8,8 +8,16 @@ licence, and FFHQ sits upstream of its weights. The goal here is the same
 capability — blind face restoration at comparable quality — with provenance that
 holds up to being read.
 
-**Status: nothing works yet.** This repository currently holds the licence, the
-provenance discipline and the design record. No model, no weights, no training code.
+**Status: the generator trains; there is no face model.** The StyleGAN2
+architecture is implemented from the papers — mapping and synthesis networks,
+discriminator, the three losses with lazy regularization, weight averaging, and
+adaptive augmentation (two of its three transform categories) — under 221
+numerical tests. A 4000-step run on a toy distribution with known ground truth
+confirms the assembly converges
+([the measurement](docs/spikes/2026-09-12-convergence-smoke-run.md)).
+
+What does not exist yet: the corpus, any trained weights, the restoration
+architecture, and the export path. Nothing here restores a face.
 
 > **Not affiliated with GFPGAN, TencentARC or NVIDIA.** OpenGFPGAN is not derived
 > from GFPGAN's code or weights, and shares no lineage with them. The name states
