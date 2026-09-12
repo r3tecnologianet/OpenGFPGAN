@@ -30,3 +30,6 @@ tmp/
 # derived from the reference implementations, so they are not clean-room sources.
 # See PROVENANCE.md.
 docs/reference/
+
+# Primary sources: fetched, never redistributed. See papers/README.md.
+papers/*.pdf
