@@ -34,7 +34,7 @@ OpenGFPGAN is an attempt at one:
 
 - **No FFHQ**, at any stage, in any form
 - **No vendored third-party code** in the inference graph
-- **Clean-room implementation** from published papers only — see [PROVENANCE.md](PROVENANCE.md)
+- **Clean-room implementation** from published papers only, with the limits of that claim stated — see [PROVENANCE.md](PROVENANCE.md)
 - **A weights licence, stated affirmatively** — the thing nobody in this family does
 
 ## Licences

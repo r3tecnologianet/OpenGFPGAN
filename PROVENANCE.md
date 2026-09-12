@@ -13,6 +13,39 @@ does not count:
 2. Implementation follows that specification. The person writing the code does
    **not** read the reference implementations.
 
+## Who wrote this, and what they had already seen
+
+The clean-room rule above says the implementer does not read the reference
+implementations. That is true of this repository and is checkable: no reference
+implementation was opened while any of this code was written. But it is not the
+whole disclosure, and a provenance document that omitted the rest would be worth
+less than nothing.
+
+**This code was written by a language model, trained on public code that includes
+the repositories listed as forbidden below.** "Did not consult them" is accurate.
+"Has never seen them" is not, and cannot be made so.
+
+Whether that breaks a clean-room claim is a question about copying expression,
+not about exposure. What can be offered is evidence, and the evidence here is
+unusually direct: **the code diverges from every published implementation at
+exactly the points where the papers and those implementations disagree.**
+
+| Value | Here, from the papers | Every implementation |
+|---|---|---|
+| Resampling kernel | `[1, 2, 1]` (P2: "2nd order binomial") | `[1, 3, 3, 1]` |
+| Path length interval | 8 (P1 App. B, verbatim) | 4 |
+| Activation gain | 1.38675 (He, for LeakyReLU α=0.2) | 1.41421 |
+| Style inputs at 512² | 23, one per input | 16, indices shared |
+| `γ_R1` at 512², batch 32 | 1.638 (P4's law) | 10, inherited from P1 |
+
+Recall reproduces what it has seen. Every row above is a place where doing so
+would have been easier and would have produced a different file. The divergences
+are not stylistic: `[1, 2, 1]` changes every resampling constant in both
+networks, and 23 style inputs changes the shape of `w`.
+
+This is evidence, not proof, and it is offered as such. Anyone auditing the
+project can check every row against the papers and against any implementation.
+
 ## Permitted primary sources
 
 Papers. Freely readable, and the ideas in them are not restricted by copyright.
@@ -356,6 +389,30 @@ Values that are architectural rather than tuned — the channel table, the
 equalized learning rate, the resampling filter, the lazy intervals, the path
 length weight, which is a closed-form function of resolution — carry over
 untouched. The distinction is whether a number was *derived* or *searched for*.
+
+## Dependencies
+
+The published artifact depends on `torch`, which is BSD-3-Clause, and on nothing
+else. No third-party source is vendored: `ogan/` imports `torch` and the Python
+standard library, and nothing further.
+
+**One asymmetry is worth stating rather than discovering.** On macOS, `torch`
+pulls only permissive dependencies. On Linux with CUDA, it additionally pulls
+NVIDIA's runtime wheels — `nvidia-cuda-runtime-cu12` declares
+`LicenseRef-NVIDIA-Proprietary`, and `nvidia-cublas-cu12` and `nvidia-cudnn-cu12`
+declare no licence on PyPI at all.
+
+Nothing about that is unusual, and it is not a defect in this project: it is true
+of every PyTorch CUDA user. It is recorded because three things about it are
+specific to us.
+
+- It is a property of the **training environment**, not of the artifact. The
+  deployment target is Core ML on Apple Silicon, which runs no NVIDIA code at any
+  point.
+- It never enters the weights. These are arithmetic kernels; their outputs are
+  numbers.
+- We do not redistribute them. If a bundled environment is ever shipped, NVIDIA's
+  terms apply to that bundle and this entry is where to start reading.
 
 ## Evaluation metrics
 
