@@ -85,17 +85,52 @@ That last row is the budget for this project's central bet. The authors measured
 what their hand-written kernels bought them; removing those kernels is expected to
 give roughly that back. It is a paper-sourced figure, not a guess.
 
+### From P3 — ProGAN
+
+| Component | Value | Category | Source |
+|---|---|---|---|
+| Weight init | trivial `N(0, 1)` | paper | P3 §4.1 |
+| Bias init | zero | paper | P3 §A.1 |
+| Equalized learning rate, mechanism | `N(0,1)` init, weights scaled at runtime by the per-layer constant from He's initializer, *not* at initialization | paper | P3 §4.1 |
+| Equalized learning rate, constant and direction | `gain/sqrt(fan_in)`, `gain = sqrt(2/(1+α²)) ≈ 1.38675` for α = 0.2, applied **once** | **derived** | see the note below |
+| Pixelwise feature normalization | `b[x,y] = a[x,y] / sqrt((1/N)·Σ_j a[x,y,j]² + ε)`, ε = 1e-8, N = number of feature maps | paper | P3 §4.2 |
+| Minibatch stddev, computation | standard deviation per feature per spatial location over the minibatch, averaged over all features and locations to **a single value**, replicated and concatenated as one constant feature map. No learnable parameters, no hyperparameters. | paper | P3 §3 |
+| Minibatch stddev, placement | at 4×4 resolution, toward the end of the discriminator | paper | P3 §A.1 |
+| Generator weight EMA, decay | 0.999 | paper | P3 §A.1 |
+| Latent | 512-dimensional, points on a hypersphere | paper | P3 §A.1 |
+| Image range | [-1, 1] | paper | P3 §A.1 |
+| LeakyReLU | leakiness 0.2 in all layers of both networks, except the last, which is linear | paper | P3 §A.1 |
+| Up/downsampling | 2×2 element replication / average pooling — **superseded by P1**, which filters | paper | P3 §A.1 |
+
+**The equalized learning rate is ambiguous in the primary source, and that has to be
+said rather than papered over.** P3 §4.1 writes `ŵᵢ = wᵢ/c`, where `c` is "the
+per-layer normalization constant from He's initializer". He's constant is
+`sqrt(2/fan_in)`. Read literally, dividing by it *amplifies* layers with wide
+fan-in — the opposite of the section's stated goal, that "the dynamic range, and
+thus the learning speed, is the same for all weights".
+
+So the mechanism is `paper` and the constant is `derived`: we take the stated
+intent — unit-variance activations under LeakyReLU with α = 0.2 — and derive
+`gain = sqrt(2/(1+α²)) = sqrt(2/1.04) ≈ 1.38675`, scaling by `gain/sqrt(fan_in)`.
+
+Two consequences worth stating explicitly, because both are easy to get wrong:
+
+- `sqrt(2) ≈ 1.41421` is He's constant for plain ReLU. These networks use
+  LeakyReLU with α = 0.2 throughout (P3 §A.1), so the α-aware constant is the
+  correct derivation, not the ReLU one.
+- It is applied **once**. Whether it lives in the weight scale or in the
+  activation is a placement choice; applying it in both places squares the gain
+  to ≈1.92 per layer, and training diverges.
+
 ### Not sourced yet
 
-P1 reuses these from P2 and P3 by citation, without restating the values. They are
-**open**, and must not be filled in from any implementation:
+P1 reuses these from P2 and P3 by citation, without restating the values. P3 has
+now been read and closed three of them. What remains is **open**, and must not be
+filled in from any implementation:
 
 | Component | Needs |
 |---|---|
-| Equalized learning rate — the gain constant and where it is applied | P3 |
-| Resampling filter coefficients (P1 says only "bilinear filtering") | P2 / P3 |
-| Minibatch standard deviation — group size, insertion point | P3 |
-| Generator weight EMA — decay | P3 |
+| Resampling filter coefficients — P1 says only "bilinear filtering", and P3 uses element replication and average pooling, so neither gives them | P2 |
 | Style mixing regularization — probability | P2 |
 | Everything about adaptive discriminator augmentation | P4 |
 
@@ -111,6 +146,8 @@ the value recorded with the measurement that produced it:
 | `γ_R1` at 512² | P1 gives 10 **for 1024²** and says the optimum "vary considerably between datasets and configurations". P4 offers a resolution heuristic; either way this is a sweep, not an inherited constant |
 | Activation clamping under reduced precision | not in P1 |
 | Choice of ε under reduced precision | P1 gives ε = 1e-8 without stating a precision regime |
+| Minibatch stddev **group size** | P3 §3 computes the statistic over the whole minibatch and introduces no subgroup. Splitting the batch into groups of 4 is an implementation-only choice |
+| Generator EMA schedule | P3 §A.1 gives a fixed decay of 0.999. Implementations instead use a half-life measured in images, which is a different thing |
 
 
 ## Known contamination in the design record
@@ -133,6 +170,10 @@ the record is corrected here rather than quietly amended:
   ≈5.37e-7 printed.
 - The grouped-convolution implementation of demodulation is stated in P1 App. B.
   It is not an implementation detail that leaked from code.
+- The gain constant `≈1.38675` the document uses is a defensible derivation of
+  He's constant for LeakyReLU, which the audit disputed in favour of `sqrt(2)`.
+  The audit was wrong: these networks are LeakyReLU throughout. What survives is
+  the narrower point, that the document applies the gain twice.
 
 What survives is narrower and more useful: **paper and code disagree in both
 directions**, so neither "the code does X" nor a second-hand summary is a
