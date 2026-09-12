@@ -10,16 +10,18 @@ provenance record, not the code, is the deliverable — see `PROVENANCE.md`.
 
 ## Commands
 
-The virtualenv is managed by `uv`; there is no Makefile and no CI.
+Standard tooling only — no Makefile, no CI, no third-party package manager.
+`.python-version` pins 3.11, so pyenv selects the right interpreter first.
 
 ```sh
-uv run --extra dev pytest                      # full suite, 221 tests, ~22s
-uv run --extra dev pytest tests/test_loss.py   # one file
-uv run --extra dev pytest -k demodulation      # one test by name
-uv run --extra dev ruff check .                # lint (E, F, I, UP, B; line length 100)
-uv run python scripts/smoke_run.py --steps 4000   # end-to-end convergence check
-./papers/fetch.sh                              # download the five primary sources
-uv run python docs/spikes/device_viability.py mps  # or cuda / cpu
+python -m venv .venv && .venv/bin/pip install -e '.[dev]'   # once
+.venv/bin/pytest                      # full suite, 221 tests, ~20s
+.venv/bin/pytest tests/test_loss.py   # one file
+.venv/bin/pytest -k demodulation      # one test by name
+.venv/bin/ruff check .                # lint (E, F, I, UP, B; line length 100)
+.venv/bin/python scripts/smoke_run.py --steps 4000   # end-to-end convergence check
+.venv/bin/python docs/spikes/device_viability.py mps  # or cuda / cpu
+./papers/fetch.sh                     # download the five primary sources
 ```
 
 `smoke_run.py` trains the whole assembly on a toy disc distribution and reports
