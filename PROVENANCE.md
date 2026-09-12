@@ -397,6 +397,15 @@ The published artifact depends on `torch`, which is BSD-3-Clause, and on nothing
 else. No third-party source is vendored: `ogan/` imports `torch` and the Python
 standard library, and nothing further.
 
+`requires-python = ">=3.11"` is a measured floor, not an aspiration: the suite was
+run to completion on 3.11.15 and on 3.14.6 — 221 passed on both, in 22s either way.
+
+`.python-version` pins development to **3.11**, for two reasons. It is the
+interpreter the measurements in `docs/spikes/` were taken on, and those numbers
+are a regression baseline that should not be compared across interpreters. And
+developing at the floor is what keeps the floor honest: on 3.14 nothing would stop
+syntax that silently breaks the version the metadata promises to support.
+
 **One asymmetry is worth stating rather than discovering.** On macOS, `torch`
 pulls only permissive dependencies. On Linux with CUDA, it additionally pulls
 NVIDIA's runtime wheels — `nvidia-cuda-runtime-cu12` declares
