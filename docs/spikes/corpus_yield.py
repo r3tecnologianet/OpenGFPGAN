@@ -70,3 +70,61 @@ def sample_ids(ids, count, seed):
     """A reproducible sample. The seed goes in the write-up with the result."""
     rng = random.Random(seed)
     return rng.sample(ids, min(count, len(ids)))
+
+
+HF_REPO = "Spawning/PD12M"
+HF_TREE = f"https://huggingface.co/api/datasets/{HF_REPO}/tree/main"
+HF_FILE = f"https://huggingface.co/datasets/{HF_REPO}/resolve/main"
+METADATA_DIR = "metadata"  # confirmed by the repo listing: 125 files, pd12m.NNN.parquet
+
+
+def metadata_files():
+    """The parquet shard paths, read from the repository listing rather than guessed."""
+    import json
+    import urllib.request
+
+    with urllib.request.urlopen(f"{HF_TREE}/{METADATA_DIR}", timeout=60) as response:
+        entries = json.load(response)
+    return sorted(e["path"] for e in entries if e["path"].endswith(".parquet"))
+
+
+def scan_metadata(paths, min_dim=MIN_IMAGE_DIM):
+    """Stage 1: how much of the dataset could hold a face of `min_dim` pixels?
+
+    Reads three columns. Parquet prunes the rest on read, so this moves tens of
+    megabytes rather than the whole table.
+
+    `pyarrow.parquet.read_table` has no HTTP backend of its own, so each shard is
+    fetched into memory with `urllib` first and handed to pyarrow as a `BytesIO`;
+    `urlopen` already follows the redirect the Hub issues to its CDN.
+
+    Returns (total_rows, large_rows, {source: [total, large]}).
+    """
+    import io
+    import urllib.request
+
+    import pyarrow.parquet as pq
+
+    total = 0
+    large = 0
+    by_source = {}
+
+    for path in paths:
+        with urllib.request.urlopen(f"{HF_FILE}/{path}", timeout=60) as response:
+            data = response.read()
+        table = pq.read_table(io.BytesIO(data), columns=["width", "height", "source"])
+        widths = table.column("width").to_pylist()
+        heights = table.column("height").to_pylist()
+        sources = table.column("source").to_pylist()
+
+        for width, height, source in zip(widths, heights, sources, strict=True):
+            counts = by_source.setdefault(source, [0, 0])
+            total += 1
+            counts[0] += 1
+            if width is not None and height is not None and min(width, height) >= min_dim:
+                large += 1
+                counts[1] += 1
+
+        print(f"  {path}: {total} rows, {large} at least {min_dim}px", flush=True)
+
+    return total, large, by_source
