@@ -1,8 +1,11 @@
 """Gate zero: how many usable faces does PD12M hold?
 
-    python docs/spikes/corpus_yield.py metadata   # stage 1, no downloads
-    python docs/spikes/corpus_yield.py sample     # stage 2, downloads and detects
-    python docs/spikes/corpus_yield.py report     # stage 3, the table
+    python docs/spikes/corpus_yield.py metadata           # stage 1, no downloads
+    python docs/spikes/corpus_yield.py report P_LARGE FILE # stage 3, the table
+
+Stage 2 has no subcommand here: it needs the eligible-id list that stage 1
+produces, so it is driven from a separate script that calls `sample_ids` and
+`sample_and_detect` directly rather than from this CLI.
 
 PD12M is 12.4M public domain images and nobody has published its face yield.
 Every open decision in this project is downstream of that number: whether the
@@ -199,3 +202,68 @@ def sample_and_detect(rows, out_path, seed):
                 print(f"  {index}/{len(rows)}", flush=True)
 
     print(f"wrote {out_path}  seed={seed}", flush=True)
+
+
+def report(p_large, records, dataset_size=DATASET_SIZE):
+    """Stage 3: the table the gate exists to produce."""
+    attempted = len(records)
+    usable = [r for r in records if r["downloaded"]]
+    single = sum(1 for r in usable if len(r["faces"]) == 1)
+
+    print(f"sampled     {attempted}")
+    print(f"downloaded  {len(usable)}  ({len(usable) / attempted:.1%})")
+    print(f"exactly one face  {single}  ({single / len(usable):.1%} of downloaded)")
+    print(f"P(min-dim >= {MIN_IMAGE_DIM}px)  {p_large:.4f}")
+    print()
+    print(f"{'threshold':>10}  {'faces/1000':>11}  {'expected total':>15}")
+
+    for threshold in THRESHOLDS:
+        per_thousand = 1000 * faces_at_least(usable, threshold) / len(usable)
+        total = expected_total(p_large, usable, threshold, dataset_size)
+        bound = "" if threshold >= MIN_IMAGE_DIM else "   (lower bound)"
+        print(f"{threshold:>10}  {per_thousand:>11.1f}  {total:>15,.0f}{bound}")
+
+    by_source = {}
+    for record in usable:
+        counts = by_source.setdefault(record["source"], [0, 0])
+        counts[0] += 1
+        counts[1] += sum(
+            1 for f in record["faces"] if min(f["w"], f["h"]) >= MIN_IMAGE_DIM
+        )
+
+    print()
+    print(f"at {MIN_IMAGE_DIM}px by source (small samples, indicative only)")
+    print(f"{'source':<40}  {'sampled':>8}  {'faces':>7}")
+    for source, (sampled, faces) in sorted(by_source.items(), key=lambda kv: -kv[1][1]):
+        print(f"{source[:40]:<40}  {sampled:>8}  {faces:>7}")
+
+
+def main(argv):
+    import json
+
+    command = argv[1] if len(argv) > 1 else "report"
+
+    if command == "metadata":
+        files = metadata_files()
+        print(f"{len(files)} parquet shards")
+        total, large, by_source = scan_metadata(files)
+        print(f"\ntotal {total:,}   at least {MIN_IMAGE_DIM}px: {large:,} ({large / total:.4f})")
+        print(f"\n{'source':<40}  {'total':>10}  {'large':>10}  {'fraction':>9}")
+        for source, (count, big) in sorted(by_source.items(), key=lambda kv: -kv[1][1]):
+            print(f"{source[:40]:<40}  {count:>10,}  {big:>10,}  {big / count:>9.4f}")
+        return 0
+
+    if command == "report":
+        p_large = float(argv[2])
+        records = [json.loads(line) for line in open(argv[3])]
+        report(p_large, records)
+        return 0
+
+    print(__doc__)
+    return 1
+
+
+if __name__ == "__main__":
+    import sys
+
+    raise SystemExit(main(sys.argv))
