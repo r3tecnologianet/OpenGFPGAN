@@ -1,9 +1,19 @@
 # OpenGFPGAN
 
-A blind face restoration model with clean provenance, built to be used commercially.
+**An alternative to GFPGAN, without the licence restrictions.**
+
+GFPGAN does the job well. Its restrictions are what stop people from using it:
+the StyleGAN2 generator sits in its inference graph under NVIDIA's non-commercial
+licence, and FFHQ sits upstream of its weights. The goal here is the same
+capability — blind face restoration at comparable quality — with provenance that
+holds up to being read.
 
 **Status: nothing works yet.** This repository currently holds the licence, the
 provenance discipline and the design record. No model, no weights, no training code.
+
+> **Not affiliated with GFPGAN, TencentARC or NVIDIA.** OpenGFPGAN is not derived
+> from GFPGAN's code or weights, and shares no lineage with them. The name states
+> what it is an alternative to. Any trademarks are the property of their owners.
 
 ## Why this exists
 
