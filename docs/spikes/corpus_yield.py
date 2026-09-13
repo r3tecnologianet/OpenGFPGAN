@@ -204,6 +204,16 @@ def sample_and_detect(rows, out_path, seed):
     print(f"wrote {out_path}  seed={seed}", flush=True)
 
 
+def label(source):
+    """A source name fit to print. Some PD12M rows carry no source at all.
+
+    Found by running the full scan: the metadata has null sources, and they are
+    kept visible rather than dropped, because an unattributed image is exactly
+    the kind the corpus rules would have to reject.
+    """
+    return (source or "(no source)")[:40]
+
+
 def report(p_large, records, dataset_size=DATASET_SIZE):
     """Stage 3: the table the gate exists to produce."""
     attempted = len(records)
@@ -235,7 +245,7 @@ def report(p_large, records, dataset_size=DATASET_SIZE):
     print(f"at {MIN_IMAGE_DIM}px by source (small samples, indicative only)")
     print(f"{'source':<40}  {'sampled':>8}  {'faces':>7}")
     for source, (sampled, faces) in sorted(by_source.items(), key=lambda kv: -kv[1][1]):
-        print(f"{source[:40]:<40}  {sampled:>8}  {faces:>7}")
+        print(f"{label(source):<40}  {sampled:>8}  {faces:>7}")
 
 
 def main(argv):
@@ -250,7 +260,7 @@ def main(argv):
         print(f"\ntotal {total:,}   at least {MIN_IMAGE_DIM}px: {large:,} ({large / total:.4f})")
         print(f"\n{'source':<40}  {'total':>10}  {'large':>10}  {'fraction':>9}")
         for source, (count, big) in sorted(by_source.items(), key=lambda kv: -kv[1][1]):
-            print(f"{source[:40]:<40}  {count:>10,}  {big:>10,}  {big / count:>9.4f}")
+            print(f"{label(source):<40}  {count:>10,}  {big:>10,}  {big / count:>9.4f}")
         return 0
 
     if command == "report":
