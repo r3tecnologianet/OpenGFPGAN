@@ -33,3 +33,4 @@ docs/reference/
 
 # Primary sources: fetched, never redistributed. See papers/README.md.
 papers/*.pdf
+docs/spikes/pd12m-sample.jsonl
