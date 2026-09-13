@@ -278,20 +278,69 @@ situation was markedly different: all augmentations were harmful". ADA is a
 small-data mechanism, and whether we need it at all depends on what the corpus
 measurement returns.
 
+### From P5 — GFPGAN
+
+Read for the restoration architecture. P5 states its full objective and every
+loss weight, which is more than P1 does for StyleGAN2.
+
+| Component | Value | Category | Source |
+|---|---|---|---|
+| Overall shape | a degradation removal module and a pretrained face GAN as prior, bridged by a latent code mapping and several Channel-Split Spatial Feature Transform layers | paper | P5 §3.1, Fig. 2 |
+| Degradation removal | U-Net, producing two outputs: `F_latent, F_spatial = U-Net(x)` | paper | P5 Eq. 1, §3.2 |
+| Why a U-Net | to "increase receptive field for large blur elimination" and to "generate multi-resolution features" | paper | P5 §3.2 |
+| U-Net depth | seven downsamples and seven upsamples, each with a residual block | paper | P5 §4.1 |
+| Latent mapping | `W = MLP(F_latent)`, then `F_GAN = StyleGAN(W)` — several MLP layers into the intermediate latent space | paper | P5 Eq. 2, §3.3 |
+| Why intermediate `W`, not `Z` | `W` "better preserv[es] semantic property" | paper | P5 §3.3 |
+| SFT | `α, β = Conv(F_spatial)`; `F_output = α ⊙ F_GAN + β` | paper | P5 Eq. 3, §3.4 |
+| **CS-SFT** | split `F_GAN` in the channel dimension, modulate one half and pass the other through unchanged: `F_output = Concat[Identity(F_GAN^split0), α ⊙ F_GAN^split1 + β]` | paper | P5 Eq. 4, §3.4 |
+| Why the split | the modulated half contributes fidelity, the identity half realness; "leave the left split as identity to achieve a good balance of realness and fidelity" | paper | P5 §3.4, §2 |
+| CS-SFT placement | at each resolution scale, coarse-to-fine | paper | P5 §3.4 |
+| CS-SFT internals | two convolutional layers per layer, generating `α` and `β` | paper | P5 §4.1 |
+| Pyramid restoration loss | L1 on the U-Net decoder's output at each resolution scale against a pyramid of the ground truth, as intermediate supervision "in the early stage of training" | paper | P5 §3.2 |
+| Reconstruction loss | `L_rec = λ_l1‖ŷ − y‖₁ + λ_per‖φ(ŷ) − φ(y)‖₁` | paper | P5 Eq. 5 |
+| Perceptual network `φ` | pretrained VGG-19, `{conv1..conv5}` feature maps **before activation** | paper | P5 Eq. 5, §3.5 |
+| Adversarial loss | `L_adv = −λ_adv·E[softplus(D(ŷ))]`, "similar to StyleGAN2" | paper | P5 Eq. 6 |
+| Facial component loss | `L_comp = Σ_ROI λ_local·E[log(1 − D_ROI(ŷ_ROI))] + λ_fs‖Gram(ψ(ŷ_ROI)) − Gram(ψ(y_ROI))‖₁` | paper | P5 Eq. 7 |
+| Components | `{left_eye, right_eye, mouth}`, cropped by ROI align | paper | P5 Eq. 7, §4.1 |
+| Feature style loss | Gram matrices of features from the **learned local discriminators**, not a fixed network. "performs better than previous feature matching loss in terms of generating realistic facial details and reducing unpleasant artifacts" | paper | P5 §3.5 |
+| Identity preserving loss | `L_id = λ_id‖η(ŷ) − η(y)‖₁`, `η` = pretrained ArcFace | paper | P5 Eq. 8, §3.5 |
+| Total objective | `L_total = L_rec + L_adv + L_comp + L_id` | paper | P5 Eq. 9 |
+| `λ_l1` | 0.1 | paper | P5 §3.5 |
+| `λ_per` | 1 | paper | P5 §3.5 |
+| `λ_adv` | 0.1 | paper | P5 §3.5 |
+| `λ_local` | 1 | paper | P5 §3.5 |
+| `λ_fs` | 200 | paper | P5 §3.5 |
+| `λ_id` | 10 | paper | P5 §3.5 |
+| Degradation model | `x = [(y ⊛ k_σ) ↓_r + n_δ]_JPEG_q` — Gaussian blur, downsample, Gaussian noise, JPEG | paper | P5 Eq. 10, §4.1 |
+| Degradation ranges | `σ ∈ {0.2:10}`, `r ∈ {1:8}`, `δ ∈ {0:15}`, `q ∈ {60:100}`, sampled per training pair, plus colour jittering | paper | P5 §4.1 |
+| Prior resolution | StyleGAN2 with 512² outputs | paper | P5 §4.1 |
+| **Prior channel multiplier** | **one**, "for compact model size" — half the width of config-F | paper | P5 §4.1 |
+| Minibatch | 12 | paper | P5 §4.1 |
+| Training augmentation | horizontal flip and colour jittering | paper | P5 §4.1 |
+| Optimiser | Adam, 800k iterations, lr 2e-3, halved at 700k and 750k | paper | P5 §4.1 |
+
+**The ablation says which parts carry the result** (P5 Table 4, LPIPS 0.3646 for
+the full model):
+
+| Removed | LPIPS | What it shows |
+|---|---|---|
+| No spatial modulation (latent code only) | 0.550 | the spatial path is the largest single contributor |
+| CS-SFT replaced by plain SFT | 0.387 | the channel split is worth ~0.023 LPIPS |
+| No generative facial prior | 0.379 | the prior is worth ~0.015 |
+| No pyramid restoration loss | 0.369 | the intermediate supervision is worth ~0.005 |
+
+Useful ordering if the architecture has to be built in stages: spatial
+modulation first, the channel split second, and the pyramid loss last.
+
 ### Not sourced yet
 
 P1 reuses components from P2 and P3 by citation without restating their values.
-P3 closed three, P2 closed the last two. One area remains, and it was always
-going to need its own paper:
+P3 closed three, P2 closed the last two, and P5 closed the restoration
+architecture. **All five papers have been read, and nothing is waiting on a
+paper.**
 
-| Component | Needs |
-|---|---|
-| The restoration architecture | P5 |
-
-P1, P2, P3 and P4 have been read. Every value the generator, the discriminator,
-the losses and the augmentation schedule need is cited above, or marked `derived`
-or `ours` with its reasoning. Only P5 remains, and it belongs to a later stage
-than any code written so far.
+What remains open is not a citation but a decision, recorded below: the two
+pretrained networks P5 puts in the training gradient path.
 
 **One ambiguity in P2, recorded rather than resolved.** P2's appendix states "We
 do not use batch normalization, spectral normalization, attention mechanisms,
@@ -391,6 +440,14 @@ equalized learning rate, the resampling filter, the lazy intervals, the path
 length weight, which is a closed-form function of resolution — carry over
 untouched. The distinction is whether a number was *derived* or *searched for*.
 
+**P5's loss weights are in this category.** `λ_l1 = 0.1`, `λ_per = 1`,
+`λ_adv = 0.1`, `λ_local = 1`, `λ_fs = 200`, `λ_id = 10` were balanced against a
+70,000-image FFHQ training set (P5 §4.1). `λ_fs = 200` in particular is two
+orders of magnitude above its neighbours, which is the signature of a weight
+fitted to a specific feature scale rather than derived. They are recorded as
+`paper` because P5 states them, and they are flagged here because stating a
+number is not the same as it being right for our distribution.
+
 ## Dependencies
 
 The published artifact depends on `torch`, which is BSD-3-Clause, and on nothing
@@ -423,6 +480,41 @@ specific to us.
   numbers.
 - We do not redistribute them. If a bundled environment is ever shipped, NVIDIA's
   terms apply to that bundle and this entry is where to start reading.
+
+## Pretrained networks inside the training gradient — unresolved
+
+P5's objective calls two third-party pretrained networks on every training step:
+
+| Network | Where | What it does |
+|---|---|---|
+| VGG-19 | `L_rec`, P5 Eq. 5 | perceptual loss, `{conv1..conv5}` before activation |
+| ArcFace | `L_id`, P5 Eq. 8 | identity preserving loss in face-embedding space |
+
+**This is a different situation from FID, and the difference matters.** FID runs
+after training, outside the gradient path, and changes no weight. These two run
+*inside* it. Their gradients shape every parameter the restorer ends up with.
+
+Neither appears in the inference graph, so a shipped model contains no VGG and no
+ArcFace code. But "the weights were trained against gradients from network X" is
+a provenance statement this project cannot avoid making, and the honest position
+is that it is unsettled — the same unsettled question the README already records
+about training data and derivative works, arriving by a second route.
+
+ArcFace is the sharper of the two. Its reference implementation ships models that
+are commonly released for non-commercial use only, and P5 does not state which
+weights it used. VGG-19 is ImageNet-trained, which the README already flags as a
+declared dependency for evaluation.
+
+Three options, none chosen yet, all deferred to when the restorer is actually
+built:
+
+1. Train without `L_id`, accept whatever identity drift results, and measure it.
+2. Substitute a face embedding we can license, or train one on our own corpus.
+3. Use them, and state plainly in the weights licence that the model was trained
+   against gradients from both.
+
+Recorded here so the decision is made deliberately rather than inherited by
+copying an equation.
 
 ## Evaluation metrics
 
